@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Extractor PDF</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <section class="workspace">
+        <header class="topbar">
+          <div>
+            <p class="eyebrow">PyMuPDF</p>
+            <h1>Extractor de texto PDF</h1>
+          </div>
+          <div class="status" id="status">Listo</div>
+        </header>
+
+        <form class="panel upload-panel" id="uploadForm">
+          <label class="dropzone" id="dropzone">
+            <input id="pdfs" name="pdfs" type="file" accept="application/pdf,.pdf" multiple>
+            <span class="drop-icon" aria-hidden="true">+</span>
+            <span class="drop-title">Selecciona o arrastra PDFs</span>
+            <span class="drop-subtitle">Puedes procesar varios archivos al mismo tiempo</span>
+          </label>
+
+          <div class="controls">
+            <input type="hidden" name="mode" value="human">
+
+            <div class="number-grid">
+              <label>
+                <span>Header omitido (%)</span>
+                <input id="headerPercent" type="number" min="0" max="40" step="1" value="8">
+              </label>
+              <label>
+                <span>Pie omitido (%)</span>
+                <input id="footerPercent" type="number" min="0" max="40" step="1" value="5">
+              </label>
+            </div>
+
+            <label class="toggle">
+              <input id="pagesJson" type="checkbox" checked>
+              <span>JSON por pagina</span>
+            </label>
+
+            <button class="primary" type="submit" id="extractButton" disabled>Extraer</button>
+          </div>
+        </form>
+
+        <section class="file-strip" id="fileStrip" aria-live="polite"></section>
+
+        <section class="results" id="results"></section>
+      </section>
+    </main>
+
+    <template id="fileTemplate">
+      <div class="file-chip">
+        <span class="file-name"></span>
+        <span class="file-size"></span>
+      </div>
+    </template>
+
+    <template id="resultTemplate">
+      <article class="result-card">
+        <div class="result-head">
+          <div>
+            <h2></h2>
+            <p class="meta"></p>
+          </div>
+          <div class="actions">
+            <a class="button txt-link" target="_blank" rel="noreferrer">TXT</a>
+            <a class="button json-link" target="_blank" rel="noreferrer">JSON</a>
+          </div>
+        </div>
+        <pre></pre>
+      </article>
+    </template>
+
+    <script src="/static/app.js"></script>
+  </body>
+</html>
