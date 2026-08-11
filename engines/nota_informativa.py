@@ -115,11 +115,35 @@ NOTA_INFORMATIVA_REPLACEMENTS: dict[str, str] = {
     "SU Comité": "su Comité",
     "SUS operaciones": "sus operaciones",
     "SUS facultades": "sus facultades",
+    # Presupuesto electoral / Eje Central
+    "UNADIFERENCIA": "UNA DIFERENCIA",
+    "demetodologías": "de metodologías",
+    "paracalcular": "para calcular",
+    "haprovocado": "ha provocado",
+    "unanueva": "una nueva",
+    "esperarecursos": "espera recursos",
+    "paracumplir": "para cumplir",
+    "sustareas": "sus tareas",
+    "presupustal": "presupuestal",
+    "laorganización": "la organización",
+    "lacompleja": "la compleja",
+    "ydespliegue": "y despliegue",
+    "oficinas)y": "oficinas) y",
+    "consulta popular 0": "consulta popular o",
+    "popular 0 un": "popular o un",
+    "popular 0 revocación": "popular o revocación",
+    "populares 0 procesos": "populares o procesos",
+    "Se 2024 citada": "Se compara con la cifra de 2024 citada",
+    "Integración presupuestaria. La cifra de 2024 citada": (
+        "Integración presupuestaria. La cifra de 2024 citada"
+    ),
 }
 
 
 NOISE_LINE = re.compile(
-    r"^(PRESIDENCIA|CORTES[ÍI]A/?\s*ESPECIAL)$",
+    r"^(PRESIDENCIA|CORTES[ÍI]A/?\s*ESPECIAL|"
+    r"Eje Central.*|"
+    r".*\bcm2\b.*P[aá]gina:.*)$",
     re.IGNORECASE,
 )
 
@@ -133,6 +157,24 @@ def repair_nota_drop_caps(text: str) -> str:
     text = re.sub(
         r"on el objetivo de acompañar y formar a C\s+mujeres",
         "Con el objetivo de acompañar y formar a mujeres",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^a (pol[eé]mica generada por la)\s+IL\b",
+        r"La \1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^La (pol[eé]mica generada por la)\s+IL\b",
+        r"La \1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r",\s*a\s+(eterna\s+controversia)\b",
+        r", la \1",
         text,
         flags=re.IGNORECASE,
     )
@@ -213,6 +255,45 @@ def join_timeline_month_year(text: str) -> str:
     return text
 
 
+def join_orphaned_years(text: str) -> str:
+    """Une años huérfanos dejados por saltos de columna/pagina."""
+    text = re.sub(
+        r"(?m)([a-záéíóúüñ,;:])\s*\n+(\d{4}\.)",
+        r"\1 \2",
+        text,
+    )
+    text = re.sub(
+        r"(?m)([a-záéíóúüñ])\s*\n+(20\d{2})\b",
+        r"\1 \2",
+        text,
+    )
+    return text
+
+
+def join_dangling_connectors(text: str) -> str:
+    """Une conectores colgados al final de un bloque con el siguiente en minuscula."""
+    return re.sub(
+        r"(?mi)\b(Se|De|Del|La|El|En|Con|Por|Para|Que|Y|E|O|U|Al|A|Su|Sus|Los|Las|Un|Una)\s*\n+([a-záéíóúüñ])",
+        r"\1 \2",
+        text,
+    )
+
+
+def strip_infographic_residue(text: str) -> str:
+    """Quita residuos tipicos de tablas/infografias mal leidas."""
+    text = re.sub(
+        r"(?ms)\n*El Dilema del Presupuesto Electoral.*$",
+        "",
+        text,
+    )
+    text = re.sub(
+        r"(?ms)\n*Elecci[oó]n Propuesta 2024 2027.*$",
+        "",
+        text,
+    )
+    return text.strip()
+
+
 class NotaInformativaCorrectionEngine(GenericCorrectionEngine):
     """Motor de correccion para notas informativas periodisticas."""
 
@@ -237,10 +318,13 @@ class NotaInformativaCorrectionEngine(GenericCorrectionEngine):
         text = clean_document_text(text)
         text = join_stacked_role_attribution(text)
         text = join_timeline_month_year(text)
+        text = join_orphaned_years(text)
+        text = join_dangling_connectors(text)
         text = apply_replacements(text, NOTA_INFORMATIVA_REPLACEMENTS)
         text = repair_paren_spacing(text)
         text = repair_common_spacing(text)
         text = split_glued_uppercase_words(text)
+        text = strip_infographic_residue(text)
         text = strip_noise_lines(text)
         return text.strip()
 

@@ -239,12 +239,17 @@ def text_inside_photograph(
     return False
 
 
+def is_masthead_title(block: TextBlock) -> bool:
+    """Titular tipografico grande sobre imagen de portada/banner."""
+    return block.font_size >= 28.0 and len(block.text.strip()) >= 3
+
+
 def filter_text_inside_photos(
     blocks: list[TextBlock],
     wide_photos: list[tuple[float, float, float, float]],
     portrait_photos: list[tuple[float, float, float, float]],
 ) -> list[TextBlock]:
-    """Omite texto dentro de fotos; conserva pies de foto."""
+    """Omite texto dentro de fotos; conserva pies de foto y titulares grandes."""
     all_photos = wide_photos + portrait_photos
     if not all_photos:
         return blocks
@@ -256,6 +261,9 @@ def filter_text_inside_photos(
             continue
 
         if text_inside_photograph(block, wide_photos):
+            # Conserva titulos masthead (p. ej. sobre foto de portada).
+            if is_masthead_title(block):
+                filtered.append(block)
             continue
 
         # Miniaturas verticales: omitir overlays/citas, no el cuerpo de timelines.
@@ -280,7 +288,7 @@ def filter_text_inside_photos(
 
 
 def repair_oversized_drop_cap_blocks(blocks: list[TextBlock]) -> list[TextBlock]:
-    """Repara capitulares gigantes tipo '1 Sistema Nacional Anti- E' + 'corrupción'."""
+    """Repara capitulares gigantes tipo '1 Sistema...' o 'a polémica ... IL'."""
     repaired: list[TextBlock] = []
     index = 0
     while index < len(blocks):
@@ -316,11 +324,52 @@ def repair_oversized_drop_cap_blocks(blocks: list[TextBlock]) -> list[TextBlock]
             if merge_at is None:
                 index += 1
             else:
-                # Copia bloques intermedios (si los hay) excepto el mergeado.
                 for mid in range(index + 1, merge_at):
                     repaired.append(blocks[mid])
                 index = merge_at + 1
             continue
+
+        if block.font_size >= 28 and re.match(r"^a\s+\S", text, flags=re.IGNORECASE):
+            text = re.sub(r"^a\s+", "La ", text, count=1, flags=re.IGNORECASE)
+            text = re.sub(r"\s+IL\s*$", "", text)
+            text = re.sub(r"\s+I\s*$", "", text)
+            repaired.append(
+                TextBlock(
+                    block.x0,
+                    block.y0,
+                    block.x1,
+                    block.y1,
+                    min(block.font_size, 12.0),
+                    text.strip(),
+                )
+            )
+            index += 1
+            continue
+
+        # Titular con capitular perdida: "electoral, a eterna controversia"
+        if block.font_size >= 28 and re.search(
+            r",\s*a\s+eterna\s+controversia\b", text, flags=re.IGNORECASE
+        ):
+            text = re.sub(
+                r",\s*a\s+(eterna\s+controversia)\b",
+                r", la \1",
+                text,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+            repaired.append(
+                TextBlock(
+                    block.x0,
+                    block.y0,
+                    block.x1,
+                    block.y1,
+                    block.font_size,
+                    text.strip(),
+                )
+            )
+            index += 1
+            continue
+
         repaired.append(block)
         index += 1
     return repaired
@@ -338,8 +387,6 @@ def extract_text_blocks(page: fitz.Page, header_percent: float, footer_percent: 
         if block.get("type") != 0:
             continue
         x0, y0, x1, y1 = block.get("bbox", (0, 0, 0, 0))
-        if y0 < top_limit or y1 > bottom_limit:
-            continue
         text = clean_paragraph(block_text_from_dict(block))
         if re.fullmatch(r"(pagina|página|page)\s+\d+", text, flags=re.IGNORECASE):
             continue
@@ -353,13 +400,21 @@ def extract_text_blocks(page: fitz.Page, header_percent: float, footer_percent: 
                 for line in block.get("lines", [])
                 for span in line.get("spans", [])
             ]
+            font_size = max(sizes, default=0.0)
+            in_header_or_footer = y0 < top_limit or y1 > bottom_limit
+            # Conserva titulares masthead aunque invadan el margen superior.
+            if in_header_or_footer and font_size < 28.0:
+                continue
+            # Omite tipografia minuscula tipica de infografias/diagramas.
+            if font_size and font_size < 6.8 and not re.search(r"\bFOTOS?\s*:", text, flags=re.IGNORECASE):
+                continue
             blocks.append(
                 TextBlock(
                     float(x0),
                     float(y0),
                     float(x1),
                     float(y1),
-                    max(sizes, default=0.0),
+                    font_size,
                     text,
                 )
             )
@@ -368,6 +423,7 @@ def extract_text_blocks(page: fitz.Page, header_percent: float, footer_percent: 
 
 
 def sort_blocks_by_columns(blocks: list[TextBlock], page_width: float) -> list[TextBlock]:
+    """Ordena por columnas completas (izquierda → derecha), no por bandas horizontales."""
     if len(blocks) <= 1:
         return blocks
 
@@ -375,54 +431,156 @@ def sort_blocks_by_columns(blocks: list[TextBlock], page_width: float) -> list[T
         (block.x0 for block in blocks), default=0.0
     )
     full_width = max(page_width * 0.45, content_width * 0.55)
-    sorted_blocks = sorted(blocks, key=lambda block: (block.y0, block.x0))
 
-    ordered: list[TextBlock] = []
-    pending_columns: list[TextBlock] = []
-
-    def flush_columns() -> None:
-        nonlocal pending_columns
-        if not pending_columns:
-            return
-
-        by_x = sorted(pending_columns, key=lambda block: (block.x0, block.y0))
-        clusters: list[list[TextBlock]] = []
-        x_anchor_tolerance = page_width * 0.17
-        for block in by_x:
-            best_cluster: list[TextBlock] | None = None
-            best_distance = float("inf")
-            for cluster in clusters:
-                cluster_anchor = min(item.x0 for item in cluster)
-                distance = abs(block.x0 - cluster_anchor)
-                if distance < best_distance:
-                    best_cluster = cluster
-                    best_distance = distance
-
-            if best_cluster is not None and best_distance <= x_anchor_tolerance:
-                best_cluster.append(block)
-            else:
-                clusters.append([block])
-
-        clusters.sort(key=lambda cluster: min(block.x0 for block in cluster))
-        for cluster in clusters:
-            ordered.extend(sorted(cluster, key=lambda block: (block.y0, block.x0)))
-        pending_columns = []
-
-    for block in sorted_blocks:
-        is_large_section_title = (
-            block.font_size >= 14.0
+    titles: list[TextBlock] = []
+    body: list[TextBlock] = []
+    for block in blocks:
+        width = block.x1 - block.x0
+        is_banner_title = block.font_size >= 28 or (
+            width >= full_width
+            and block.font_size >= 14.0
             and len(block.text.strip()) > 2
             and not re.fullmatch(r"\d+\.?", block.text.strip())
-            and not block.text.lstrip().startswith("Que ")
         )
-        is_full_width = (block.x1 - block.x0) >= full_width or is_large_section_title
-        if is_full_width:
-            flush_columns()
-            ordered.append(block)
+        if is_banner_title:
+            titles.append(block)
         else:
-            pending_columns.append(block)
-    flush_columns()
+            body.append(block)
+
+    if not body:
+        return sorted(titles, key=lambda block: (block.y0, block.x0))
+
+    # Creditos de autor salen del flujo de columnas (evita pegarlos al inicio de otra).
+    bylines: list[TextBlock] = []
+    column_body: list[TextBlock] = []
+    for block in body:
+        if is_author_byline(block.text, block.font_size):
+            bylines.append(block)
+        else:
+            column_body.append(block)
+    bylines.sort(key=lambda block: (block.y0, block.x0))
+
+    # Agrupa el cuerpo en columnas por ancla x0.
+    by_x = sorted(column_body, key=lambda block: (block.x0, block.y0))
+    clusters: list[list[TextBlock]] = []
+    x_anchor_tolerance = page_width * 0.12
+    for block in by_x:
+        best_cluster: list[TextBlock] | None = None
+        best_distance = float("inf")
+        for cluster in clusters:
+            cluster_anchor = min(item.x0 for item in cluster)
+            distance = abs(block.x0 - cluster_anchor)
+            if distance < best_distance:
+                best_cluster = cluster
+                best_distance = distance
+        if best_cluster is not None and best_distance <= x_anchor_tolerance:
+            best_cluster.append(block)
+        else:
+            clusters.append([block])
+
+    clusters.sort(key=lambda cluster: min(block.x0 for block in cluster))
+    for cluster in clusters:
+        cluster.sort(key=lambda block: (block.y0, block.x0))
+
+    # Inserta titulos/banner por posicion vertical respecto a las columnas.
+    titles_sorted = sorted(titles, key=lambda block: (block.y0, block.x0))
+    if not titles_sorted and not bylines:
+        ordered: list[TextBlock] = []
+        for cluster in clusters:
+            ordered.extend(cluster)
+        return ordered
+
+    ordered = []
+    title_index = 0
+    byline_index = 0
+    column_cursors = [0] * len(clusters)
+
+    while (
+        title_index < len(titles_sorted)
+        or byline_index < len(bylines)
+        or any(column_cursors[i] < len(clusters[i]) for i in range(len(clusters)))
+    ):
+        # Y del proximo bloque de columna (sin creditos).
+        column_y = float("inf")
+        for idx, cluster in enumerate(clusters):
+            cursor = column_cursors[idx]
+            if cursor < len(cluster):
+                column_y = min(column_y, cluster[cursor].y0)
+        byline_y = (
+            bylines[byline_index].y0 if byline_index < len(bylines) else float("inf")
+        )
+        next_content_y = min(column_y, byline_y)
+
+        if title_index < len(titles_sorted) and titles_sorted[title_index].y0 <= next_content_y + 8:
+            ordered.append(titles_sorted[title_index])
+            title_index += 1
+            continue
+
+        # Creditos de autor: despues de titulos superiores y antes de cualquier columna.
+        if byline_index < len(bylines):
+            blocking_title = (
+                title_index < len(titles_sorted)
+                and titles_sorted[title_index].y0 < byline_y - 5
+            )
+            if not blocking_title:
+                ordered.append(bylines[byline_index])
+                byline_index += 1
+                continue
+
+        # Emite una columna completa a la vez (flujo periodistico clasico).
+        progressed = False
+        for idx, cluster in enumerate(clusters):
+            if column_cursors[idx] >= len(cluster):
+                continue
+            # Si el siguiente titulo esta en medio de esta columna, corta ahi.
+            limit_y = (
+                titles_sorted[title_index].y0
+                if title_index < len(titles_sorted)
+                else float("inf")
+            )
+            while column_cursors[idx] < len(cluster) and cluster[column_cursors[idx]].y0 < limit_y:
+                ordered.append(cluster[column_cursors[idx]])
+                column_cursors[idx] += 1
+                progressed = True
+            if progressed:
+                break
+        if not progressed:
+            # Evita bucles si solo quedan titulos/creditos por debajo.
+            if title_index < len(titles_sorted):
+                ordered.append(titles_sorted[title_index])
+                title_index += 1
+            elif byline_index < len(bylines):
+                ordered.append(bylines[byline_index])
+                byline_index += 1
+            else:
+                break
+
     return ordered
+
+
+def same_column(previous: TextBlock, current: TextBlock, page_width: float) -> bool:
+    """Misma columna solo si comparten ancla X y no hay salto hacia arriba (cambio de columna)."""
+    if abs(previous.x0 - current.x0) > page_width * 0.12:
+        return False
+    # Al terminar una columna el siguiente bloque vuelve arriba: no fusionar.
+    if current.y0 + 35.0 < previous.y0:
+        return False
+    return True
+
+
+def is_author_byline(text: str, font_size: float) -> bool:
+    """Credito de autor tipico: nombre en title case y tipografia chica."""
+    if font_size > 9.5:
+        return False
+    compact = text.strip()
+    if not compact or len(compact) > 60 or re.search(r"[.!?]$", compact):
+        return False
+    return bool(
+        re.match(
+            r"^[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ.]+){1,5}$",
+            compact,
+        )
+    )
 
 
 def page_text_human(
@@ -431,19 +589,43 @@ def page_text_human(
     header_percent: float,
     footer_percent: float,
 ) -> str:
+    page_width = float(page.rect.width)
     blocks = extract_text_blocks(page, header_percent, footer_percent)
-    ordered = sort_blocks_by_columns(blocks, float(page.rect.width))
+    ordered = sort_blocks_by_columns(blocks, page_width)
     merged_blocks: list[TextBlock] = []
     for block in ordered:
         previous_is_short_heading = bool(merged_blocks and is_short_upper_line(merged_blocks[-1].text))
         previous_font = merged_blocks[-1].font_size if merged_blocks else 0.0
         compatible_font = abs(previous_font - block.font_size) <= 5.0
-        heading_to_body_boundary = previous_font >= 12.0 and block.font_size <= 10.5
+        previous_text = merged_blocks[-1].text.strip() if merged_blocks else ""
+        # Evita mezclar subtítulos reales con el cuerpo; no aplica a inicios de
+        # párrafo tras capitular (font ~12 con continuación en minúscula).
+        heading_to_body_boundary = (
+            previous_font >= 13.0
+            and block.font_size <= 10.5
+            and (
+                previous_is_short_heading
+                or len(previous_text.split()) <= 8
+            )
+        )
+        # Titular de nota (~11-13pt) seguido de lead en tipografia menor.
+        title_to_body_boundary = (
+            previous_font >= 11.0
+            and block.font_size <= previous_font - 2.0
+            and bool(re.match(r"^[A-ZÁÉÍÓÚÜÑ¿¡\"«]", block.text.strip()))
+            and not re.search(r"[,:;]$", previous_text)
+        )
+        previous_is_author_credit = bool(
+            merged_blocks and is_author_byline(previous_text, previous_font)
+        )
         if (
             merged_blocks
+            and same_column(merged_blocks[-1], block, page_width)
             and not previous_is_short_heading
+            and not previous_is_author_credit
             and compatible_font
             and not heading_to_body_boundary
+            and not title_to_body_boundary
             and not re.search(r'[.!?:"”)]$', merged_blocks[-1].text)
             and not re.match(r"^[A-ZÁÉÍÓÚÜÑ0-9][A-ZÁÉÍÓÚÜÑ0-9\s.,;:¿?¡!\"'()-]{2,}$", block.text)
         ):
