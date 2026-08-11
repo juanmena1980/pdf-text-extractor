@@ -11,6 +11,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 
 from extract_pdf_text import extract_one_pdf
+from engines import available_genre_ids
 
 
 @dataclass
@@ -116,6 +117,7 @@ def evaluate_case(
     output_dir: Path,
     header_percent: float,
     footer_percent: float,
+    genre: str = "nota_informativa",
 ) -> CaseResult:
     case_name = pdf_path.stem
     case_dir = output_dir / case_name
@@ -129,6 +131,7 @@ def evaluate_case(
         write_pages_json=True,
         header_percent=header_percent,
         footer_percent=footer_percent,
+        genre=genre,
     )
 
     actual_path = Path(result.output_txt)
@@ -212,8 +215,14 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "-o",
         "--output-dir",
-        default="outputs/pdf_text_extractor/evaluation",
+        default="evaluation",
         help="Carpeta donde se escriben actual.txt, diffs y reportes.",
+    )
+    parser.add_argument(
+        "--genre",
+        choices=available_genre_ids(),
+        default="nota_informativa",
+        help="Motor de correccion por genero. Default: nota_informativa.",
     )
     parser.add_argument("--header-percent", type=float, default=8.0)
     parser.add_argument("--footer-percent", type=float, default=5.0)
@@ -236,6 +245,7 @@ def main(argv: list[str] | None = None) -> int:
                 output_dir=output_dir,
                 header_percent=args.header_percent,
                 footer_percent=args.footer_percent,
+                genre=args.genre,
             )
         )
 

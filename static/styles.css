@@ -196,7 +196,8 @@ legend {
   gap: 8px;
 }
 
-.number-grid label {
+.number-grid label,
+.genre-field {
   display: grid;
   gap: 7px;
   color: var(--muted);
@@ -204,6 +205,7 @@ legend {
   font-weight: 700;
 }
 
+.genre-field select,
 .number-grid input {
   min-height: 42px;
   width: 100%;

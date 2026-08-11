@@ -9,15 +9,32 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Iterable
 
-LOCAL_PACKAGE_DIR = Path(__file__).resolve().parents[1] / ".docqa_packages"
-if LOCAL_PACKAGE_DIR.exists():
-    sys.path.insert(0, str(LOCAL_PACKAGE_DIR))
+from engines import available_genre_ids, get_engine
+from engines.base import (
+    TextCorrectionEngine,
+    clean_document_text,
+    clean_paragraph,
+    is_short_upper_line,
+    merge_floating_drop_caps,
+)
+
+
+def _bootstrap_local_packages() -> None:
+    """Solo runtime portable local de este proyecto (sin otros repos)."""
+    if getattr(sys, "frozen", False):
+        return
+    candidate = Path(__file__).resolve().parent / "runtime" / "site-packages"
+    if candidate.exists():
+        sys.path.insert(0, str(candidate))
+
+
+_bootstrap_local_packages()
 
 try:
     import fitz  # PyMuPDF
 except ImportError as exc:
     raise SystemExit(
-        "PyMuPDF no esta instalado. Ejecuta: python -m pip install PyMuPDF"
+        "PyMuPDF no esta instalado. Ejecuta: python -m pip install -r requirements.txt"
     ) from exc
 
 
@@ -39,6 +56,7 @@ class PdfResult:
     word_count: int
     encrypted: bool
     needs_ocr: bool
+    genre: str
 
 
 @dataclass
@@ -74,269 +92,6 @@ def safe_output_stem(pdf_path: Path, base_input: Path) -> str:
     slug = re.sub(r"[^A-Za-z0-9._-]+", "_", raw).strip("._-")
     digest = hashlib.sha1(str(pdf_path.resolve()).encode("utf-8")).hexdigest()[:8]
     return f"{slug or 'pdf'}_{digest}"
-
-
-def clean_paragraph(text: str) -> str:
-    lines = [re.sub(r"\s+", " ", line).strip() for line in text.splitlines()]
-    lines = [line for line in lines if line]
-    if not lines:
-        return ""
-
-    paragraph = lines[0]
-    for line in lines[1:]:
-        if paragraph.endswith("-") and line[:1].islower():
-            paragraph = paragraph[:-1] + line
-        else:
-            paragraph += " " + line
-
-    paragraph = re.sub(r"\s+([,.;:!?])", r"\1", paragraph)
-    paragraph = re.sub(r"([,;:])(?=\S)", r"\1 ", paragraph)
-    paragraph = re.sub(r"(\w)-\s+([a-záéíóúüñ])", r"\1\2", paragraph)
-    paragraph = re.sub(r"([¿¡])\s+", r"\1", paragraph)
-    paragraph = re.sub(r"\s+([•*-]\s+)", r"\n\n\1", paragraph)
-    paragraph = re.sub(r"\s+(\d+\.\s+)", r"\n\n\1", paragraph)
-    paragraph = re.sub(r"[ \t]{2,}", " ", paragraph)
-    paragraph = re.sub(r"\n\n\s+", "\n\n", paragraph)
-    return paragraph.strip()
-
-
-def clean_document_text(text: str) -> str:
-    paragraphs = [clean_paragraph(part) for part in re.split(r"\n{2,}", text)]
-    paragraphs = [paragraph for paragraph in paragraphs if paragraph]
-    return repair_drop_cap_paragraph_breaks("\n\n".join(paragraphs))
-
-
-def repair_drop_cap_paragraph_breaks(text: str) -> str:
-    def replace(match: re.Match[str]) -> str:
-        prefix, cap, first_letter = match.groups()
-        if cap == "E" and first_letter.lower() in "aáeéiíoóuúü":
-            return f"{prefix}El {first_letter}"
-        return f"{prefix}{cap}{first_letter}"
-
-    return re.sub(
-        r"(^|\n\n)([A-ZÁÉÍÓÚÜÑ])\n\n([a-záéíóúüñ])",
-        replace,
-        text,
-    )
-
-
-def is_short_upper_line(text: str, max_length: int = 80) -> bool:
-    return bool(text and len(text) <= max_length and text == text.upper())
-
-
-def repair_missing_drop_capital(text: str) -> str:
-    repairs = (
-        (r"^n\s+([A-ZÁÉÍÓÚÜÑ])", r"En \1"),
-        (r"^l\s+([a-záéíóúüñ])", r"El \1"),
-        (r"^a\s+([a-záéíóúüñ])", r"La \1"),
-        (r"^os\s+([a-záéíóúüñ])", r"Los \1"),
-        (r"^as\s+([a-záéíóúüñ])", r"Las \1"),
-    )
-    for pattern, replacement in repairs:
-        repaired = re.sub(pattern, replacement, text, count=1)
-        if repaired != text:
-            return repaired
-    return text
-
-
-def repair_spacing_artifacts(text: str) -> str:
-    replacements = {
-        "Canadá(T-MEC)": "Canadá (T-MEC)",
-        "Borderlands(editorial": "Borderlands (editorial",
-        "Harfuch\"y": "Harfuch\" y",
-        "en\"sombras": "en \"sombras",
-        "muerte\"y": "muerte\" y",
-        "que\"no": "que \"no",
-        "lafrontera": "la frontera",
-        "ellado": "el lado",
-        "porlaembajada": "por la embajada",
-        "EUdurante": "EU durante",
-        "laadministración": "la administración",
-        "losmismosjesuitas": "los mismos jesuitas",
-        "mismosjesuitas": "mismos jesuitas",
-        "esefuturo": "ese futuro",
-        "migratoriasy": "migratorias y",
-        "migración seguridad": "migración y seguridad",
-        "Brownsville Matamoros": "Brownsville y Matamoros",
-        "cercanosa": "cercanos a",
-        "contactadoa": "contactado a",
-        "Paca\"y": "Paca\" y",
-        "prensa?Algunos": "prensa? Algunos",
-        "costumbre.Veremos": "costumbre. Veremos",
-        "sen- Augusto tarse": "sentarse",
-        "Adán Adán solo": "Adán solo",
-        "como Manuel ejemplos": "como ejemplos",
-        "en el Huerta pasado": "en el pasado",
-        "Eje- Claudia cutivo": "Ejecutivo",
-        "ma- Sheinbaum nifestaciones": "manifestaciones",
-        "O cancelar": "o cancelar",
-        "carreteras y Cámara de hospitales": "carreteras y hospitales",
-        "Lo que más Diputados han escuchado": "Lo que más han escuchado",
-        "desde ejecutar supervisar": "desde ejecutar y supervisar",
-        "sismo de\n\n2017": "sismo de 2017",
-        "Papaa": "Papa a",
-        "traera": "traer a",
-        "ámbitoprivado": "ámbito privado",
-        "comojefe": "como jefe",
-        "cuerposdeseguridad": "cuerpos de seguridad",
-        "losjesuitasJavier": "los jesuitas Javier",
-        "Camposy": "Campos y",
-        "Moraen": "Mora en",
-        "Ylafalta": "Y la falta",
-        "desolidaridadde": "de solidaridad de",
-        "laviolenciacontra": "la violencia contra",
-        "enumerarmás": "enumerar más",
-        "HéctorMario": "Héctor Mario",
-        "aRadio": "a Radio",
-        "prontolo": "pronto lo",
-        "estéaquí": "esté aquí",
-        "tomancuerpo": "toman cuerpo",
-        "JorgeRomero": "Jorge Romero",
-        "dejuniode": "de junio de",
-        "Lasgestiones": "Las gestiones",
-        "llevamuyavanzadas": "lleva muy avanzadas",
-        "lasnegociaciones": "las negociaciones",
-        "MCpara": "MC para",
-        "pulverizarel": "pulverizar el",
-        "votoopositor": "voto opositor",
-        "Yen ": "Y en ",
-        "llegara": "llegar a",
-        "conazules": "con azules",
-        "padreyRicardo": "padre y Ricardo",
-        "habráotros": "habrá otros",
-        "GUERRATLAXCALTECA": "GUERRA TLAXCALTECA",
-        "Apropósitode": "A propósito de",
-        "SánchezAnaya": "Sánchez Anaya",
-        "deprácticas": "de prácticas",
-        "losefectos": "los efectos",
-        "operadorespara": "operadores para",
-        "decamiones": "de camiones",
-        "BAJOSOSPECHA": "BAJO SOSPECHA",
-        "TELÃ‰FONOROJO": "TELÃ‰FONO ROJO",
-        "4T.Por": "4T. Por",
-        "cualquierforma": "cualquier forma",
-        "polÃ­ticay": "polÃ­tica y",
-        "elsegundo": "el segundo",
-        "ladirigencianacional": "la dirigencia nacional",
-        "deAriadna": "de Ariadna",
-        "partido.\"Â¿Lesmolesta": "partido. \"Â¿Les molesta",
-        "mujero": "mujer o",
-        "aintimidar": "a intimidar",
-        "morenista.AhÃ­": "morenista. AhÃ­",
-        "mejorconocida": "mejor conocida",
-        "responsabilidadcon": "responsabilidad con",
-        "liderazgo de tu": "liderazgo y de tu",
-        "futuro.Estoy": "futuro. Estoy",
-        "coordinaciÃ³ny": "coordinaciÃ³n y",
-        "familiasmexicanas": "familias mexicanas",
-        "deChihuahua": "de Chihuahua",
-        "MaruCampos": "Maru Campos",
-        "mandatariosestatales": "mandatarios estatales",
-        "estadoscuando": "estados cuando",
-        "posicionescomunes": "posiciones comunes",
-        "paÃ­s.Pendientes": "paÃ­s. Pendientes",
-        "pocostuvieron": "pocos tuvieron",
-        "laoportunidadde": "la oportunidad de",
-        "elestilo el": "el estilo y el",
-        "lagobernadora": "la gobernadora",
-        "rumboa": "rumbo a",
-        "eltema": "el tema",
-        "tipocama": "tipo cama",
-        "ybebidasgourmet": "y bebidas gourmet",
-        "luzcuando": "luz cuando",
-        "parecenrelato": "parecen relato",
-        "recordaraque": "recordara que",
-        "2024fuevista": "2024 fue vista",
-        "Nayeli SalvatoriyGracePalomares": "Nayeli Salvatori y Grace Palomares",
-        "seconvirtieron": "se convirtieron",
-        "pÃºblicopor": "pÃºblico por",
-        "el queabordaron": "el que abordaron",
-        "lavejez": "la vejez",
-        "quedijeron": "que dijeron",
-        "yfueradel": "y fuera del",
-        "Sheinbaumse": "Sheinbaum se",
-        "aPalomaresabrir": "a Palomares abrir",
-        "susjÃ³venes": "sus jÃ³venes",
-        "Diputadoscomience": "Diputados comience",
-        "laFederaciÃ³n": "la FederaciÃ³n",
-        "(PEF)del": "(PEF) del",
-        "cadaperiodo": "cada periodo",
-        "yorganismos": "y organismos",
-        "partidajusta": "partida justa",
-        "anteproyecto-36": "anteproyecto- 36",
-        "seremarcÃ³": "se remarcÃ³",
-        "solicitudestÃ¡": "solicitud estÃ¡",
-        "primerintento": "primer intento",
-        "dadotanto": "dado tanto",
-        "parajustificarlos": "para justificar los",
-        "lacÃºpula": "la cÃºpula",
-        "violando": "violando",
-        "decampaÃ±a": "de campaÃ±a",
-        "quesimplemente": "que simplemente",
-        "al\"activismo": "al \"activismo",
-        "territorial\"que": "territorial\" que",
-        "Zavalay": "Zavala y",
-        "anticipados.SegÃºn": "anticipados. SegÃºn",
-        "odeberÃ­aserinformar": "o deberÃ­a ser informar",
-        "dondesolo": "donde solo",
-        "audienciasy": "audiencias y",
-        "Reuters elestudio": "Reuters el estudio",
-        "mÃ¡sambicioso": "mÃ¡s ambicioso",
-        "consumo informatidocumenta": "consumo informativo documenta",
-        "partedel": "parte del",
-        "tiempo.En": "tiempo. En",
-        "MÃ©xico erosiÃ³n": "MÃ©xico la erosiÃ³n",
-        "cayÃ³al349": "cayÃ³ al 34%",
-        "Aestose": "A esto se",
-        "yque": "y que",
-        "39%ya": "39% ya",
-        "fluencers con nosotros": "influencers antes que con nosotros",
-        "elhartazgo": "el hartazgo",
-        "yolvidamos": "y olvidamos",
-        "sueÃ±os control": "sueÃ±os de control y",
-        "radicales les": "radicales les",
-        "verun": "ver un",
-        "venezolana la": "venezolana o la",
-        "parareducir": "para reducir",
-        "contrariada: reclamar": "contrariada a reclamar",
-        "censura de quien": "censura de quien",
-        "cÃ­rculorojo": "cÃ­rculo rojo",
-        "Volvamosa": "Volvamos a",
-        "explicarpor": "explicar por",
-        "quÃ©es": "quÃ© es",
-        "volvamos: trabajar": "volvamos a trabajar",
-        "gentey": "gente y",
-        "lasociedad": "la sociedad",
-        "apagasolo": "apaga solo",
-    }
-    for old, new in replacements.items():
-        text = text.replace(old, new)
-
-    text = re.sub(r"([a-záéíóúüñ])([A-ZÁÉÍÓÚÜÑ]{2,})", r"\1 \2", text)
-    return text
-
-
-def merge_floating_drop_caps(text_blocks: list[str]) -> list[str]:
-    merged: list[str] = []
-    index = 0
-    while index < len(text_blocks):
-        current = text_blocks[index].strip()
-        if (
-            index + 1 < len(text_blocks)
-            and re.fullmatch(r"[A-ZÁÉÍÓÚÜÑ]", current)
-            and re.match(r"^[a-záéíóúüñ]", text_blocks[index + 1].lstrip())
-        ):
-            following = text_blocks[index + 1].lstrip()
-            if current == "E" and following[:1].lower() in "aáeéiíoóuúü":
-                merged.append(f"El {following}")
-            else:
-                merged.append(f"{current}{following}")
-            index += 2
-            continue
-
-        merged.append(text_blocks[index])
-        index += 1
-    return merged
 
 
 def line_text_from_spans(line: dict) -> str:
@@ -375,11 +130,208 @@ def block_text_from_dict(block: dict) -> str:
     return "\n".join(lines)
 
 
+def is_efinfo_banner(text: str) -> bool:
+    lowered = text.lower()
+    return "efinfo" in lowered or "libre utilización de obras" in lowered
+
+
+def _bbox_size(bbox: tuple[float, float, float, float]) -> tuple[float, float]:
+    x0, y0, x1, y1 = bbox
+    return max(0.0, x1 - x0), max(0.0, y1 - y0)
+
+
+def is_wide_photograph(
+    bbox: tuple[float, float, float, float], page_width: float, page_height: float
+) -> bool:
+    """Fotos anchas (no columnas de texto ni timelines estrechos)."""
+    width, height = _bbox_size(bbox)
+    return width >= page_width * 0.40 and height >= page_height * 0.10
+
+
+def is_portrait_photo_inset(
+    bbox: tuple[float, float, float, float], page_width: float, page_height: float
+) -> bool:
+    """Miniaturas/retratos verticales (p. ej. cita tipografica dentro de foto)."""
+    x0, y0, x1, y1 = bbox
+    width, height = _bbox_size(bbox)
+    # Sidebars/timelines de pagina completa no son miniaturas.
+    if y0 < page_height * 0.25 and height >= page_height * 0.45:
+        return False
+    return page_width * 0.08 <= width <= page_width * 0.20 and height >= page_height * 0.22
+
+
+def looks_like_graphic_overlay_text(text: str) -> bool:
+    """Texto decorativo dentro de foto/miniatura (letras separadas o etiquetas)."""
+    lowered = text.lower()
+    markers = (
+        r"diagn[oó]sti\s+cos",
+        r"\bev\s+itar",
+        r"concentra\s+ra\b",
+        r"institucio\s*$",
+        r"institucio\s+nes",
+        r"guberna\s*mentales",
+        r"nes\s*guberna",
+        r"\bsis\s+tema\b",
+        r"adicionalmen\s+te",
+        r"^ra el poder\b",
+    )
+    if any(re.search(pattern, lowered) for pattern in markers):
+        return True
+    compact = re.sub(r"\s+", " ", text.strip())
+    if re.fullmatch(
+        r"(INTEGRANTE|DEL COMIT[EÉ] DE|PARTICIPACI[OÓ]N|CIUDADANA\.?)",
+        compact,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    # Titulos cortos sobreimpresos en foto (p. ej. SISTEMA NACIONAL)
+    if compact.isupper() and 8 <= len(compact) <= 40 and " " in compact:
+        return True
+    return False
+
+
+def collect_photograph_bboxes(
+    page: fitz.Page,
+) -> tuple[list[tuple[float, float, float, float]], list[tuple[float, float, float, float]]]:
+    page_width = float(page.rect.width)
+    page_height = float(page.rect.height)
+    wide: list[tuple[float, float, float, float]] = []
+    portraits: list[tuple[float, float, float, float]] = []
+    try:
+        infos = page.get_image_info(xrefs=True)
+    except Exception:
+        infos = []
+    for info in infos:
+        bbox = info.get("bbox")
+        if not bbox or len(bbox) != 4:
+            continue
+        box = (float(bbox[0]), float(bbox[1]), float(bbox[2]), float(bbox[3]))
+        if is_wide_photograph(box, page_width, page_height):
+            wide.append(box)
+        elif is_portrait_photo_inset(box, page_width, page_height):
+            portraits.append(box)
+    return wide, portraits
+
+
+def is_photo_caption(
+    block: TextBlock, photos: list[tuple[float, float, float, float]]
+) -> bool:
+    text = block.text.strip()
+    if re.search(r"\bFOTOS?\s*:", text, flags=re.IGNORECASE):
+        return True
+    for x0, y0, x1, y1 in photos:
+        # Pie tipico: justo debajo o rozando el borde inferior de la foto.
+        if block.y0 >= y1 - 18 and block.y0 <= y1 + 90:
+            overlaps_x = block.x1 >= x0 - 25 and block.x0 <= x1 + 25
+            if overlaps_x:
+                return True
+    return False
+
+
+def text_inside_photograph(
+    block: TextBlock, photos: list[tuple[float, float, float, float]], bottom_margin: float = 22.0
+) -> bool:
+    cx = (block.x0 + block.x1) / 2.0
+    cy = (block.y0 + block.y1) / 2.0
+    for x0, y0, x1, y1 in photos:
+        if x0 < cx < x1 and y0 < cy < (y1 - bottom_margin):
+            return True
+    return False
+
+
+def filter_text_inside_photos(
+    blocks: list[TextBlock],
+    wide_photos: list[tuple[float, float, float, float]],
+    portrait_photos: list[tuple[float, float, float, float]],
+) -> list[TextBlock]:
+    """Omite texto dentro de fotos; conserva pies de foto."""
+    all_photos = wide_photos + portrait_photos
+    if not all_photos:
+        return blocks
+
+    filtered: list[TextBlock] = []
+    for block in blocks:
+        if is_photo_caption(block, wide_photos):
+            filtered.append(block)
+            continue
+
+        if text_inside_photograph(block, wide_photos):
+            continue
+
+        # Miniaturas verticales: omitir overlays/citas, no el cuerpo de timelines.
+        if text_inside_photograph(block, portrait_photos, bottom_margin=8.0):
+            compact = block.text.strip()
+            if looks_like_graphic_overlay_text(compact) or re.fullmatch(
+                r"[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+){0,3},?",
+                compact,
+            ):
+                continue
+            # Fragmentos cortos tipicos de la cita tipografica partida
+            if len(compact) <= 40 and not re.search(r"\d{4}\.", compact):
+                if re.search(r"\s", compact) and not re.search(r"[.!?]$", compact):
+                    # p. ej. "ra el poder en las institucio"
+                    if looks_like_graphic_overlay_text(compact) or re.match(
+                        r"^[a-záéíóúüñ]", compact
+                    ):
+                        continue
+
+        filtered.append(block)
+    return filtered
+
+
+def repair_oversized_drop_cap_blocks(blocks: list[TextBlock]) -> list[TextBlock]:
+    """Repara capitulares gigantes tipo '1 Sistema Nacional Anti- E' + 'corrupción'."""
+    repaired: list[TextBlock] = []
+    index = 0
+    while index < len(blocks):
+        block = blocks[index]
+        text = block.text.strip()
+        if block.font_size >= 28 and re.match(r"^1\s+Sistema\b", text):
+            text = re.sub(r"^1\s+", "El ", text)
+            text = re.sub(r"Anti-\s*E\s*$", "Anti", text)
+            merge_at = None
+            for look_ahead in range(index + 1, min(index + 8, len(blocks))):
+                candidate = blocks[look_ahead]
+                # Misma columna aproximada.
+                if abs(candidate.x0 - block.x0) > 80 and abs(candidate.x1 - block.x1) > 80:
+                    continue
+                following = candidate.text.lstrip()
+                lower_follow = following.lower()
+                if lower_follow.startswith("corrupción") or lower_follow.startswith("corrupcion"):
+                    merge_at = look_ahead
+                    token = "corrupción" if lower_follow.startswith("corrupción") else "corrupcion"
+                    rest = following[len(token) :]
+                    text = text[: -len("Anti")] + "Anticorrupción" + rest
+                    break
+            repaired.append(
+                TextBlock(
+                    block.x0,
+                    block.y0,
+                    block.x1,
+                    block.y1,
+                    min(block.font_size, 12.0),
+                    text.strip(),
+                )
+            )
+            if merge_at is None:
+                index += 1
+            else:
+                # Copia bloques intermedios (si los hay) excepto el mergeado.
+                for mid in range(index + 1, merge_at):
+                    repaired.append(blocks[mid])
+                index = merge_at + 1
+            continue
+        repaired.append(block)
+        index += 1
+    return repaired
+
+
 def extract_text_blocks(page: fitz.Page, header_percent: float, footer_percent: float) -> list[TextBlock]:
     page_dict = page.get_text("dict", sort=False)
     page_height = float(page.rect.height)
     top_limit = page_height * max(0.0, min(header_percent, 40.0)) / 100.0
     bottom_limit = page_height * (1.0 - max(0.0, min(footer_percent, 40.0)) / 100.0)
+    wide_photos, portrait_photos = collect_photograph_bboxes(page)
 
     blocks = []
     for block in page_dict.get("blocks", []):
@@ -392,6 +344,8 @@ def extract_text_blocks(page: fitz.Page, header_percent: float, footer_percent: 
         if re.fullmatch(r"(pagina|página|page)\s+\d+", text, flags=re.IGNORECASE):
             continue
         if "@" in text or text.lower().startswith("www."):
+            continue
+        if is_efinfo_banner(text):
             continue
         if text:
             sizes = [
@@ -409,7 +363,8 @@ def extract_text_blocks(page: fitz.Page, header_percent: float, footer_percent: 
                     text,
                 )
             )
-    return blocks
+    blocks = filter_text_inside_photos(blocks, wide_photos, portrait_photos)
+    return repair_oversized_drop_cap_blocks(blocks)
 
 
 def sort_blocks_by_columns(blocks: list[TextBlock], page_width: float) -> list[TextBlock]:
@@ -455,7 +410,7 @@ def sort_blocks_by_columns(blocks: list[TextBlock], page_width: float) -> list[T
 
     for block in sorted_blocks:
         is_large_section_title = (
-            block.font_size >= 16.0
+            block.font_size >= 14.0
             and len(block.text.strip()) > 2
             and not re.fullmatch(r"\d+\.?", block.text.strip())
             and not block.text.lstrip().startswith("Que ")
@@ -470,7 +425,12 @@ def sort_blocks_by_columns(blocks: list[TextBlock], page_width: float) -> list[T
     return ordered
 
 
-def page_text_human(page: fitz.Page, header_percent: float, footer_percent: float) -> str:
+def page_text_human(
+    page: fitz.Page,
+    engine: TextCorrectionEngine,
+    header_percent: float,
+    footer_percent: float,
+) -> str:
     blocks = extract_text_blocks(page, header_percent, footer_percent)
     ordered = sort_blocks_by_columns(blocks, float(page.rect.width))
     merged_blocks: list[TextBlock] = []
@@ -523,21 +483,86 @@ def page_text_human(page: fitz.Page, header_percent: float, footer_percent: floa
             continue
         index += 1
 
+    # Une "Nombre Apellido,\nINTEGRANTE\nDEL COMITÉ..." en una sola linea.
+    index = 0
+    while index < len(text_blocks):
+        current = text_blocks[index].rstrip()
+        if current.endswith(",") and index + 1 < len(text_blocks) and is_short_upper_line(text_blocks[index + 1]):
+            end = index + 1
+            while end < len(text_blocks) and is_short_upper_line(text_blocks[end]):
+                end += 1
+            text_blocks[index:end] = [" ".join(part.strip() for part in text_blocks[index:end])]
+            index += 1
+            continue
+        if is_short_upper_line(current) and index + 1 < len(text_blocks) and is_short_upper_line(text_blocks[index + 1]):
+            end = index + 1
+            while end < len(text_blocks) and is_short_upper_line(text_blocks[end]):
+                end += 1
+            if end - index > 1:
+                text_blocks[index:end] = [" ".join(part.strip() for part in text_blocks[index:end])]
+                index += 1
+                continue
+        index += 1
+
     text_blocks = merge_floating_drop_caps(text_blocks)
-    text_blocks = [repair_spacing_artifacts(repair_missing_drop_capital(block)) for block in text_blocks]
-    return repair_spacing_artifacts(clean_document_text("\n\n".join(text_blocks)))
+    text_blocks = [engine.correct_block(block) for block in text_blocks]
+    return engine.correct_document("\n\n".join(text_blocks))
 
 
-def page_text(page: fitz.Page, mode: str, header_percent: float = 0.0, footer_percent: float = 0.0) -> str:
+def page_text(
+    page: fitz.Page,
+    mode: str,
+    engine: TextCorrectionEngine,
+    header_percent: float = 0.0,
+    footer_percent: float = 0.0,
+) -> str:
     if mode == "human":
-        return page_text_human(page, header_percent=header_percent, footer_percent=footer_percent)
+        return page_text_human(
+            page,
+            engine=engine,
+            header_percent=header_percent,
+            footer_percent=footer_percent,
+        )
 
     if mode == "blocks":
         blocks = page.get_text("blocks", sort=True)
         text_blocks = [block[4].strip() for block in blocks if len(block) >= 5 and block[4].strip()]
-        return clean_document_text("\n\n".join(text_blocks))
+        return engine.correct_document(clean_document_text("\n\n".join(text_blocks)))
 
-    return clean_document_text(page.get_text("text", sort=True).strip())
+    return engine.correct_document(clean_document_text(page.get_text("text", sort=True).strip()))
+
+
+def join_cross_page_paragraphs(page_texts: list[str]) -> str:
+    """Une parrafos partidos por salto de pagina (p. ej. '... acuerdo y' + 'de ahi...')."""
+    if not page_texts:
+        return ""
+
+    combined = page_texts[0].rstrip()
+    for part in page_texts[1:]:
+        next_part = part.lstrip()
+        if not next_part:
+            continue
+        if not combined:
+            combined = next_part.rstrip()
+            continue
+
+        prev_tail = combined.rstrip()
+        ends_sentence = bool(re.search(r'[.!?…"”»)\]]$', prev_tail))
+        next_starts_lower = bool(re.match(r"^[a-záéíóúüñ¿¡]", next_part))
+        ends_with_connector = bool(
+            re.search(
+                r"(?i)\b(y|e|o|u|de|del|la|el|los|las|un|una|en|con|por|para|que|se|al|a|su|sus)$",
+                prev_tail,
+            )
+        )
+
+        if next_starts_lower and (not ends_sentence or ends_with_connector):
+            combined = f"{prev_tail} {next_part}"
+        else:
+            combined = f"{prev_tail}\n\n{next_part}"
+        combined = combined.rstrip()
+
+    return combined
 
 
 def extract_one_pdf(
@@ -548,7 +573,9 @@ def extract_one_pdf(
     write_pages_json: bool,
     header_percent: float = 8.0,
     footer_percent: float = 5.0,
+    genre: str = "nota_informativa",
 ) -> PdfResult:
+    engine = get_engine(genre)
     output_dir.mkdir(parents=True, exist_ok=True)
     stem = safe_output_stem(pdf_path, base_input)
     txt_path = output_dir / f"{stem}.txt"
@@ -568,6 +595,7 @@ def extract_one_pdf(
             text = page_text(
                 page,
                 mode,
+                engine=engine,
                 header_percent=header_percent if mode == "human" else 0.0,
                 footer_percent=footer_percent if mode == "human" else 0.0,
             )
@@ -583,13 +611,16 @@ def extract_one_pdf(
             if text:
                 all_text_parts.append(text)
 
-    full_text = "\n\n".join(all_text_parts).rstrip() + "\n"
+    full_text = join_cross_page_paragraphs(all_text_parts).rstrip() + "\n"
+    # Reaplica el documento completo para unir tambien cortes tipicos del genero.
+    full_text = engine.correct_document(full_text).rstrip() + "\n"
     txt_path.write_text(full_text, encoding="utf-8")
 
     output_json: str | None = None
     if write_pages_json:
         json_payload = {
             "source_pdf": str(pdf_path),
+            "genre": engine.id,
             "pages": [asdict(page) for page in pages],
         }
         json_path.write_text(
@@ -609,6 +640,7 @@ def extract_one_pdf(
         word_count=word_count,
         encrypted=encrypted,
         needs_ocr=char_count == 0,
+        genre=engine.id,
     )
 
 
@@ -620,6 +652,7 @@ def extract_pdfs(
     write_pages_json: bool,
     header_percent: float = 8.0,
     footer_percent: float = 5.0,
+    genre: str = "nota_informativa",
 ) -> list[PdfResult]:
     pdfs = discover_pdfs(input_path, recursive)
     if not pdfs:
@@ -636,6 +669,7 @@ def extract_pdfs(
                 write_pages_json=write_pages_json,
                 header_percent=header_percent,
                 footer_percent=footer_percent,
+                genre=genre,
             )
         )
     return results
@@ -652,6 +686,7 @@ def write_manifest(output_dir: Path, results: Iterable[PdfResult]) -> Path:
 
 
 def parse_args(argv: list[str]) -> argparse.Namespace:
+    genres = available_genre_ids()
     parser = argparse.ArgumentParser(
         description="Extrae texto de PDFs con PyMuPDF y genera TXT + JSON."
     )
@@ -659,8 +694,8 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
     parser.add_argument(
         "-o",
         "--output-dir",
-        default="outputs/pdf_text_extractor/text",
-        help="Carpeta de salida. Default: outputs/pdf_text_extractor/text",
+        default="text",
+        help="Carpeta de salida. Default: text",
     )
     parser.add_argument(
         "-r",
@@ -673,6 +708,12 @@ def parse_args(argv: list[str]) -> argparse.Namespace:
         choices=["human", "text", "blocks"],
         default="human",
         help="human quita header/footer y ordena columnas; text preserva flujo general; blocks separa bloques.",
+    )
+    parser.add_argument(
+        "--genre",
+        choices=genres,
+        default="nota_informativa",
+        help="Motor de correccion por genero editorial. Default: nota_informativa.",
     )
     parser.add_argument(
         "--header-percent",
@@ -707,10 +748,12 @@ def main(argv: list[str] | None = None) -> int:
         write_pages_json=not args.no_pages_json,
         header_percent=args.header_percent,
         footer_percent=args.footer_percent,
+        genre=args.genre,
     )
     manifest_path = write_manifest(output_dir, results)
 
     print(f"PDFs procesados: {len(results)}")
+    print(f"Genero: {args.genre}")
     print(f"Manifest: {manifest_path}")
     for result in results:
         ocr_hint = " necesita OCR" if result.needs_ocr else ""

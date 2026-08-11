@@ -15,3 +15,8 @@ evaluation*/
 .env
 .venv/
 venv/
+runtime/
+build/
+dist/
+*.spec
+PDFTextExtractor.exe

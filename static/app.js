@@ -43,12 +43,35 @@ function basename(path) {
   return path.split(/[\\/]/).pop();
 }
 
+async function loadGenres() {
+  const select = document.querySelector("#genre");
+  if (!select) return;
+  try {
+    const response = await fetch("/genres");
+    if (!response.ok) return;
+    const payload = await response.json();
+    const current = select.value || payload.default || "nota_informativa";
+    select.replaceChildren();
+    for (const genre of payload.genres || []) {
+      const option = document.createElement("option");
+      option.value = genre.id;
+      option.textContent = genre.label;
+      if (genre.description) option.title = genre.description;
+      if (genre.id === current) option.selected = true;
+      select.append(option);
+    }
+  } catch {
+    // Mantiene las opciones estaticas del HTML.
+  }
+}
+
 function renderResult(result) {
   const card = resultTemplate.content.firstElementChild.cloneNode(true);
   const name = basename(result.source_pdf);
   card.querySelector("h2").textContent = name;
   card.querySelector(".meta").textContent =
     `${result.page_count} paginas - ${result.word_count} palabras - ${result.char_count} caracteres` +
+    (result.genre ? ` - ${result.genre}` : "") +
     (result.needs_ocr ? " - necesita OCR" : "");
   card.querySelector(".txt-link").href = result.output_txt_url;
 
@@ -63,6 +86,7 @@ function renderResult(result) {
   results.prepend(card);
 }
 
+loadGenres();
 input.addEventListener("change", renderFiles);
 
 for (const eventName of ["dragenter", "dragover"]) {
@@ -100,6 +124,7 @@ form.addEventListener("submit", async (event) => {
     formData.append("pdfs", file);
   }
   formData.append("mode", new FormData(form).get("mode") || "human");
+  formData.append("genre", document.querySelector("#genre").value || "nota_informativa");
   formData.append("pagesJson", document.querySelector("#pagesJson").checked ? "true" : "false");
   formData.append("headerPercent", document.querySelector("#headerPercent").value || "8");
   formData.append("footerPercent", document.querySelector("#footerPercent").value || "5");

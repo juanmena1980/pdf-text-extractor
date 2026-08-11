@@ -4,19 +4,36 @@ import cgi
 import json
 import mimetypes
 import shutil
+import sys
+import webbrowser
 from dataclasses import asdict
 from http import HTTPStatus
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from pathlib import Path
 from urllib.parse import unquote, urlparse
 
+from engines import available_genre_ids, list_engines
 from extract_pdf_text import extract_one_pdf
 
 
-APP_DIR = Path(__file__).resolve().parent
+def runtime_base_dir() -> Path:
+    """Carpeta de datos al lado del .exe (USB) o del script en desarrollo."""
+    if getattr(sys, "frozen", False):
+        return Path(sys.executable).resolve().parent
+    return Path(__file__).resolve().parent
+
+
+def resource_dir() -> Path:
+    """Recursos empaquetados (static/) cuando se ejecuta como .exe."""
+    if getattr(sys, "frozen", False) and hasattr(sys, "_MEIPASS"):
+        return Path(sys._MEIPASS)
+    return Path(__file__).resolve().parent
+
+
+APP_DIR = runtime_base_dir()
 UPLOAD_DIR = APP_DIR / "uploads"
 OUTPUT_DIR = APP_DIR / "text"
-STATIC_DIR = APP_DIR / "static"
+STATIC_DIR = resource_dir() / "static"
 MAX_UPLOAD_BYTES = 100 * 1024 * 1024
 
 
@@ -75,6 +92,21 @@ class PdfTextHandler(BaseHTTPRequestHandler):
         parsed = urlparse(self.path)
         if parsed.path == "/":
             self.serve_file(STATIC_DIR / "index.html", "text/html; charset=utf-8")
+            return
+        if parsed.path == "/genres":
+            self.send_json(
+                {
+                    "genres": [
+                        {
+                            "id": engine.id,
+                            "label": engine.label,
+                            "description": engine.description,
+                        }
+                        for engine in list_engines()
+                    ],
+                    "default": "nota_informativa",
+                }
+            )
             return
         if parsed.path.startswith("/static/"):
             relative = unquote(parsed.path.removeprefix("/static/"))
@@ -145,8 +177,15 @@ class PdfTextHandler(BaseHTTPRequestHandler):
         write_pages_json = self.read_form_value(form, "pagesJson", "true") == "true"
         header_percent = parse_percent(self.read_form_value(form, "headerPercent", "8"), 8.0)
         footer_percent = parse_percent(self.read_form_value(form, "footerPercent", "5"), 5.0)
+        genre = self.read_form_value(form, "genre", "nota_informativa").strip().lower()
         if mode not in {"human", "text", "blocks"}:
             mode = "human"
+        if genre not in available_genre_ids():
+            self.send_json(
+                {"error": f"Genero no valido: {genre}. Usa /genres para ver opciones."},
+                HTTPStatus.BAD_REQUEST,
+            )
+            return
 
         fields = form["pdfs"] if "pdfs" in form else []
         if not isinstance(fields, list):
@@ -176,11 +215,12 @@ class PdfTextHandler(BaseHTTPRequestHandler):
                     write_pages_json=write_pages_json,
                     header_percent=header_percent,
                     footer_percent=footer_percent,
+                    genre=genre,
                 )
                 result_payload = asdict(result)
                 result_payload["output_txt_url"] = file_url(result.output_txt)
                 result_payload["output_json_url"] = file_url(result.output_json)
-                result_payload["preview"] = Path(result.output_txt).read_text(encoding="utf-8")[:5000]
+                result_payload["preview"] = Path(result.output_txt).read_text(encoding="utf-8")
                 results.append(result_payload)
             except Exception as exc:
                 errors.append({"file": filename, "error": str(exc)})
@@ -228,9 +268,15 @@ def main() -> int:
     ensure_dirs()
     host = "127.0.0.1"
     port = 8765
+    url = f"http://{host}:{port}"
     server = ThreadingHTTPServer((host, port), PdfTextHandler)
-    print(f"Interfaz lista en http://{host}:{port}")
+    print(f"Interfaz lista en {url}")
+    print(f"Salidas en: {OUTPUT_DIR}")
     print("Presiona Ctrl+C para detenerla.")
+    try:
+        webbrowser.open(url)
+    except Exception:
+        pass
     try:
         server.serve_forever()
     except KeyboardInterrupt:
