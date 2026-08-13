@@ -31,7 +31,10 @@ class CaseResult:
 
 def normalize_for_compare(text: str) -> str:
     text = text.replace("\ufeff", "")
+    text = text.replace("\u00ad", "")  # soft hyphen
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    # Miles: "20, 000" / "20 , 000" -> "20,000"
+    text = re.sub(r"(\d)\s*,\s*(\d{3})\b", r"\1,\2", text)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()

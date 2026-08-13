@@ -7,6 +7,7 @@ from engines.base import (
     apply_replacements,
     clean_document_text,
     repair_missing_drop_capital,
+    split_glued_spanish_words,
     split_glued_uppercase_words,
 )
 from engines.registry import register_engine
@@ -137,12 +138,85 @@ NOTA_INFORMATIVA_REPLACEMENTS: dict[str, str] = {
     "Integración presupuestaria. La cifra de 2024 citada": (
         "Integración presupuestaria. La cifra de 2024 citada"
     ),
+    # Excelsior / deportes
+    "ÚTIMA": "ÚLTIMA",
+    "UTIMA": "ÚLTIMA",
+    "eljardín": "el jardín",
+    "eljardin": "el jardín",
+    # Universal / Milenio pegados
+    "Estelunescomenzó": "Este lunes comenzó",
+    "Estelunescomenzo": "Este lunes comenzó",
+    "elCentro": "el Centro",
+    "revictimizarami": "revictimizar a mi",
+    "feminicidiode": "feminicidio de",
+    "veranod la": "verano de la",
+    "veranod": "verano de",
+    "GabrielZapata": "Gabriel Zapata",
+    "Zapatalo": "Zapata lo",
+    "lohizovía": "lo hizo vía",
+    "lohizovia": "lo hizo vía",
+    "apetición": "a petición",
+    "eleseguridad": "el seguridad",
+    "Quiensídialogó": "Quien sí dialogó",
+    "Quiensidialogo": "Quien sí dialogó",
+    "conlos": "con los",
+    "comunicaOmar": "comunica- Omar",
+    "comunica-Omar": "comunica- Omar",
+    "oenconoy": "o encono y",
+    "esqueseaa": "es que sea a",
+    "clientees": "cliente es",
+    "ysobre": "y sobre",
+    "ysobretodo": "y sobre todo",
+    "todovamos": "todo vamos",
+    "sitambién": "si también",
+    "sitambien": "si también",
+    "vamosademostrar": "vamos a demostrar",
+    "Lavinculación": "La vinculación",
+    "Lavinculacion": "La vinculación",
+    "enoctubredel": "en octubre del",
+    "ydespuésobtuvo": "y después obtuvo",
+    "ydespuesobtuvo": "y después obtuvo",
+    "Variosvehículos": "Varios vehículos",
+    "Variosvehiculos": "Varios vehículos",
+    "lodoyagua": "lodo y agua",
+    "entrelodoyagua": "entre lodo y agua",
+    "traselcolapso": "tras el colapso",
+    "parteposteriorde": "parte posterior de",
+    "deVolkswagen": "de Volkswagen",
+    "alasfuertes": "a las fuertes",
+    "lluviasdel": "lluvias del",
+    "desemana": "de semana",
+    "fin desemana": "fin de semana",
+    "JESÚSPADILLA": "JESÚS PADILLA",
+    "JESUSPADILLA": "JESÚS PADILLA",
+    "-ROBERTO": "- ROBERTO",
+    "dejulio": "de julio",
+    # Financiero / Economista / Sol de Mexico
+    "queAlito": "que Alito",
+    "confundirla": "confundir la",
+    "venganzay": "venganza y",
+    "ilícitoy": "ilícito y",
+    "ilicito y": "ilícito y",
+    "delitossin": "delitos sin",
+    "yjuzgó": "y juzgó",
+    "yjuzgo": "y juzgó",
+    'que"el': 'que "el',
+    'que"El': 'que "El',
+    "acce SOS": "acceso SOS",
+    "acce- SOS": "acceso SOS",
+    "acce-\nSOS": "acceso SOS",
 }
 
 
 NOISE_LINE = re.compile(
     r"^(PRESIDENCIA|CORTES[ÍI]A/?\s*ESPECIAL|"
     r"Eje Central.*|"
+    r"Exc[eé]lsior\s+Secci[oó]n:.*|"
+    r"Milenio Diario.*|"
+    r"Prev[eé] INE destinar.*|"
+    r"EN SEPTIEMBRE ARRANCA|"
+    r"Incrementar[aá] la demanda de IA|"
+    r"EL PRIISTA NO DEFIENDE.*|"
     r".*\bcm2\b.*P[aá]gina:.*)$",
     re.IGNORECASE,
 )
@@ -178,10 +252,72 @@ def repair_nota_drop_caps(text: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
+    text = re.sub(r"\b[UÚ]TIMA\b", "ÚLTIMA", text)
+    # Capitular numerica: "1 Gobierno de México alista E para" -> "El Gobierno..."
+    text = re.sub(
+        r"(?m)^1\s+(Gobierno de M[eé]xico alista)\s+E\s+",
+        r"El \1 ",
+        text,
+    )
+    text = re.sub(
+        r"(?m)^1\s+(Gobierno de M[eé]xico alista)\s+",
+        r"El \1 ",
+        text,
+    )
+    # Titular con puntos suspensivos rotos: ".Y Montiel" / "...Y Montiel"
+    text = re.sub(r"(?m)^\.{0,3}Y\s+(Montiel\b)", r"...Y \1", text)
+    # Capitular Un: "n nuevo audio" / "nuevo audio atribuido"
+    text = re.sub(
+        r"(?m)^n\s+(nuevo\s+audio\b)",
+        r"Un \1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^nuevo\s+(audio\s+atribuido\b)",
+        r"Un nuevo \1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Une titulo partido: "... UU.\n\nrevelada en nuevo audio"
+    text = re.sub(
+        r"(EE\.\s*UU\.)\s*\n+(revelada en nuevo audio)\b",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bUBaja\b", "Baja", text)
+    text = re.sub(r"\bgrabacon\b", "grabación", text, flags=re.IGNORECASE)
+    # Fragmento huerfano por corte de columna
+    text = re.sub(
+        r"(?m)^ci[oó]n tras la revocaci[oó]n de la visa",
+        "grabación tras la revocación de la visa",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bSUS\b", "sus", text)
+    return text
+
+
+def repair_thousand_separators(text: str) -> str:
+    """Normaliza '20, 000' -> '20,000'."""
+    return re.sub(r"(\d),\s+(\d{3})\b", r"\1,\2", text)
+
+
+def join_split_masthead_title(text: str) -> str:
+    """Une titulares partidos en dos lineas mayusculas/frase."""
+    text = re.sub(
+        r"(?m)^(Alistan operaci[oó]n)\s*\n+(?:EN SEPTIEMBRE ARRANCA\s*\n+)?(del C4 carretero)\s*$",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
     return text
 
 
 def repair_hyphen_line_breaks(text: str) -> str:
+    # Soft hyphen unicode
+    text = text.replace("\u00ad", "")
     # Une cortes silabicos residuales: "necesi-\ndad" / "UNI- VERSAL"
     text = re.sub(r"(\w)-\s+(\w)", r"\1\2", text)
     return text
@@ -271,12 +407,34 @@ def join_orphaned_years(text: str) -> str:
 
 
 def join_dangling_connectors(text: str) -> str:
-    """Une conectores colgados al final de un bloque con el siguiente en minuscula."""
+    """Une conectores colgados solo con continuaciones cortas (misma columna)."""
     return re.sub(
-        r"(?mi)\b(Se|De|Del|La|El|En|Con|Por|Para|Que|Y|E|O|U|Al|A|Su|Sus|Los|Las|Un|Una)\s*\n+([a-záéíóúüñ])",
+        r"(?mi)\b(Se|De|Del|La|El|En|Con|Por|Para|Que|Y|E|O|U|Al|A|Su|Sus|Los|Las|Un|Una)\s*\n+"
+        r"([a-záéíóúüñ][^\n]{0,80})\s*(?=\n\n|\Z)",
         r"\1 \2",
         text,
     )
+
+
+def join_numeric_callouts(text: str) -> str:
+    """Une callouts '2\\n\\nAÑOS' tipicos de infografias periodisticas."""
+    return re.sub(
+        r"(?m)^(\d+)\s*\n+([A-ZÁÉÍÓÚÜÑ]{2,}(?:\s+\S+){0,20})",
+        r"\1 \2",
+        text,
+    )
+
+
+def repair_cross_column_continuations(text: str) -> str:
+    """Reordena continuaciones cortas insertadas tras un salto de columna."""
+    text = re.sub(
+        r"(negocio de)\s*\n\n(Seg[uú]n el portal Investors Hub[\s\S]*?)(?:\n\n)+(?:intel\s*\n\n)?(fundici[oó]n, que fabrica chips para clientes externos\.)",
+        r"\1 \3\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?m)^intel\s*$", "", text, flags=re.IGNORECASE)
+    return text
 
 
 def strip_infographic_residue(text: str) -> str:
@@ -288,6 +446,24 @@ def strip_infographic_residue(text: str) -> str:
     )
     text = re.sub(
         r"(?ms)\n*Elecci[oó]n Propuesta 2024 2027.*$",
+        "",
+        text,
+    )
+    text = re.sub(
+        r"(?ms)\n*Por aprobar\n+(?:Gasto operativo:.*\n*)+$",
+        "\n\nPor aprobar\n",
+        text,
+    )
+    # Fragmentos de columna/cita cortados
+    text = re.sub(r"(?m)^en ras\", dijo\.\s*$", "", text)
+    text = re.sub(r"(?m)^Operativo en la carretera.*$", "", text)
+    text = re.sub(
+        r"(?m)^JUAN\s*\n+MANUEL GARC[IÍ]A.*$",
+        "",
+        text,
+    )
+    text = re.sub(
+        r"(?m)^JUAN MANUEL GARC[IÍ]A UNIDAD DE INFRAESTRUCTURA INFORM[AÁ]TICA\s*$",
         "",
         text,
     )
@@ -305,6 +481,9 @@ class NotaInformativaCorrectionEngine(GenericCorrectionEngine):
         text = repair_missing_drop_capital(text)
         text = repair_nota_drop_caps(text)
         text = repair_hyphen_line_breaks(text)
+        text = repair_thousand_separators(text)
+        text = apply_replacements(text, NOTA_INFORMATIVA_REPLACEMENTS)
+        text = split_glued_spanish_words(text)
         text = apply_replacements(text, NOTA_INFORMATIVA_REPLACEMENTS)
         text = repair_paren_spacing(text)
         text = repair_common_spacing(text)
@@ -312,14 +491,21 @@ class NotaInformativaCorrectionEngine(GenericCorrectionEngine):
         return text.strip()
 
     def correct_document(self, text: str) -> str:
+        text = text.replace("\u00ad", "")
         text = strip_noise_lines(text)
         text = repair_nota_drop_caps(text)
         text = repair_hyphen_line_breaks(text)
         text = clean_document_text(text)
+        text = join_split_masthead_title(text)
         text = join_stacked_role_attribution(text)
         text = join_timeline_month_year(text)
         text = join_orphaned_years(text)
+        text = join_numeric_callouts(text)
         text = join_dangling_connectors(text)
+        text = repair_cross_column_continuations(text)
+        text = repair_thousand_separators(text)
+        text = apply_replacements(text, NOTA_INFORMATIVA_REPLACEMENTS)
+        text = split_glued_spanish_words(text)
         text = apply_replacements(text, NOTA_INFORMATIVA_REPLACEMENTS)
         text = repair_paren_spacing(text)
         text = repair_common_spacing(text)

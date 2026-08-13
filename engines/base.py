@@ -94,11 +94,25 @@ def merge_floating_drop_caps(text_blocks: list[str]) -> list[str]:
             and re.match(r"^[a-záéíóúüñ]", text_blocks[index + 1].lstrip())
         ):
             following = text_blocks[index + 1].lstrip()
+            # Capitulares tipicas; evita pegar "U"+"baja" en medio del texto.
             if current == "E" and following[:1].lower() in "aáeéiíoóuúü":
                 merged.append(f"El {following}")
-            else:
-                merged.append(f"{current}{following}")
-            index += 2
+                index += 2
+                continue
+            if current == "U" and following.lower().startswith("n "):
+                merged.append(f"U{following}")  # Un ...
+                index += 2
+                continue
+            if current in {"L", "A", "N", "D", "T", "S", "C", "P", "M", "H"}:
+                if current == "E":
+                    merged.append(f"El {following}")
+                else:
+                    merged.append(f"{current}{following}")
+                index += 2
+                continue
+            # Otras letras sueltas: no fusionar (ruido / callouts).
+            merged.append(text_blocks[index])
+            index += 1
             continue
 
         merged.append(text_blocks[index])
@@ -114,6 +128,39 @@ def apply_replacements(text: str, replacements: dict[str, str]) -> str:
 
 def split_glued_uppercase_words(text: str) -> str:
     return re.sub(r"([a-záéíóúüñ])([A-ZÁÉÍÓÚÜÑ]{2,})", r"\1 \2", text)
+
+
+def split_glued_spanish_words(text: str) -> str:
+    """Separa pegados frecuentes: minuscula+Mayuscula y articulos/preposiciones."""
+    # Solo si la segunda parte inicia en MAYUSCULA real (sin IGNORECASE).
+    text = re.sub(
+        r"([a-záéíóúüñ])([A-ZÁÉÍÓÚÜÑ][a-záéíóúüñáéíóúüñ])",
+        r"\1 \2",
+        text,
+    )
+    particles = (
+        r"El|La|Los|Las|Un|Una|De|Del|Al|En|Con|Por|Para|Que|Se|Su|Sus|"
+        r"Es|Fue|Ha|Han|Como|M[aá]s|Muy|Lo|Le|Les|"
+        r"Si|S[ií]|Ya|Hoy|Tras|Entre|Sobre|Desde|Hasta|V[ií]a|"
+        r"el|la|los|las|un|una|de|del|al|en|con|por|para|que|se|su|sus|"
+        r"es|fue|ha|han|como|m[aá]s|muy|lo|le|les|"
+        r"si|s[ií]|ya|hoy|tras|entre|sobre|desde|hasta|v[ií]a"
+    )
+    text = re.sub(
+        rf"\b({particles})([A-ZÁÉÍÓÚÜÑ])",
+        r"\1 \2",
+        text,
+    )
+    # Digito pegado a particula: 16dejulio
+    text = re.sub(
+        r"(\d)(de|del|en|al|a|y|por|con|la|las|los|el|un|una)(?=[a-záéíóúüñ])",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Punto pegado a mayuscula: seguridad.Quien
+    text = re.sub(r"([a-záéíóúüñ])\.([A-ZÁÉÍÓÚÜÑ])", r"\1. \2", text)
+    return text
 
 
 class GenericCorrectionEngine(TextCorrectionEngine):

@@ -239,6 +239,29 @@ def text_inside_photograph(
     return False
 
 
+def looks_like_headline(block: TextBlock) -> bool:
+    """Titular de nota (no necesariamente masthead gigante)."""
+    text = block.text.strip()
+    if len(text) < 8:
+        return False
+    if block.font_size >= 14.0:
+        return True
+    return block.font_size >= 12.0 and len(text.split()) >= 3
+
+
+def looks_like_article_body(text: str) -> bool:
+    """Parrafo periodistico real (conservar aunque caiga sobre bbox de foto)."""
+    compact = re.sub(r"\s+", " ", text.strip())
+    if len(compact) < 35:
+        return False
+    words = compact.split()
+    if len(words) < 8:
+        return False
+    if looks_like_graphic_overlay_text(compact) and not re.search(r"[.!?].{15,}", compact):
+        return False
+    return bool(re.search(r"[.!,;:]", compact)) or len(compact) >= 80
+
+
 def is_masthead_title(block: TextBlock) -> bool:
     """Titular tipografico grande sobre imagen de portada/banner."""
     return block.font_size >= 28.0 and len(block.text.strip()) >= 3
@@ -249,7 +272,7 @@ def filter_text_inside_photos(
     wide_photos: list[tuple[float, float, float, float]],
     portrait_photos: list[tuple[float, float, float, float]],
 ) -> list[TextBlock]:
-    """Omite texto dentro de fotos; conserva pies de foto y titulares grandes."""
+    """Omite overlays en fotos; conserva titulares, cuerpo y pies de foto."""
     all_photos = wide_photos + portrait_photos
     if not all_photos:
         return blocks
@@ -261,8 +284,14 @@ def filter_text_inside_photos(
             continue
 
         if text_inside_photograph(block, wide_photos):
-            # Conserva titulos masthead (p. ej. sobre foto de portada).
-            if is_masthead_title(block):
+            # En recortes con foto grande el texto de la nota suele vivir
+            # dentro del bbox: conservar titulares y parrafos reales.
+            if (
+                is_masthead_title(block)
+                or looks_like_headline(block)
+                or looks_like_article_body(block.text)
+                or is_author_byline(block.text, block.font_size)
+            ):
                 filtered.append(block)
             continue
 
@@ -390,7 +419,13 @@ def extract_text_blocks(page: fitz.Page, header_percent: float, footer_percent: 
         text = clean_paragraph(block_text_from_dict(block))
         if re.fullmatch(r"(pagina|página|page)\s+\d+", text, flags=re.IGNORECASE):
             continue
-        if "@" in text or text.lower().startswith("www."):
+        # Omite URLs sueltas; conserva emails de credito de autor.
+        if text.lower().startswith("www."):
+            continue
+        if "@" in text and not re.fullmatch(
+            r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}",
+            text.strip(),
+        ):
             continue
         if is_efinfo_banner(text):
             continue
@@ -402,11 +437,24 @@ def extract_text_blocks(page: fitz.Page, header_percent: float, footer_percent: 
             ]
             font_size = max(sizes, default=0.0)
             in_header_or_footer = y0 < top_limit or y1 > bottom_limit
-            # Conserva titulares masthead aunque invadan el margen superior.
-            if in_header_or_footer and font_size < 28.0:
+            # Conserva titulares (no solo masthead >=28) aunque invadan el margen.
+            if in_header_or_footer and font_size < 14.0:
                 continue
             # Omite tipografia minuscula tipica de infografias/diagramas.
-            if font_size and font_size < 6.8 and not re.search(r"\bFOTOS?\s*:", text, flags=re.IGNORECASE):
+            # Conserva creditos de redaccion (~6.6pt) y pies de foto.
+            if font_size and font_size < 6.5:
+                continue
+            if (
+                font_size
+                and font_size < 6.8
+                and not re.search(r"\bFOTOS?\s*:", text, flags=re.IGNORECASE)
+                and not is_newsroom_credit(text)
+            ):
+                continue
+            # Tablas/infografias leidas a lo ancho: repeticiones de etiquetas.
+            if text.count("Gasto operativo:") >= 2 or text.count("Total:") >= 2:
+                continue
+            if text.count("Gasto de campaña:") >= 2 or text.count("Gasto de campana:") >= 2:
                 continue
             blocks.append(
                 TextBlock(
@@ -436,11 +484,36 @@ def sort_blocks_by_columns(blocks: list[TextBlock], page_width: float) -> list[T
     body: list[TextBlock] = []
     for block in blocks:
         width = block.x1 - block.x0
-        is_banner_title = block.font_size >= 28 or (
-            width >= full_width
-            and block.font_size >= 14.0
-            and len(block.text.strip()) > 2
-            and not re.fullmatch(r"\d+\.?", block.text.strip())
+        compact = block.text.strip()
+        word_count = len(compact.split())
+        # Callouts numericos gigantes (p. ej. "2") no son titulos de pagina.
+        is_numeric_callout = bool(re.fullmatch(r"\d+\.?", compact)) or (
+            block.font_size >= 28.0 and len(compact) <= 3
+        )
+        # Citas/pull quotes tampoco (rompen el orden de columnas).
+        is_pull_quote = bool(re.match(r"^[\"“«'‘]", compact))
+        is_banner_title = (not is_numeric_callout) and (not is_pull_quote) and (
+            block.font_size >= 28
+            or (
+                width >= full_width
+                and block.font_size >= 14.0
+                and len(compact) > 2
+                and not re.fullmatch(r"\d+\.?", compact)
+            )
+            or (
+                # Titulares de nota relativamente anchos (no bajadas/ estrechos).
+                block.font_size >= 14.0
+                and width >= page_width * 0.30
+                and 3 <= word_count <= 24
+                and not re.search(r"[.!?]$", compact)
+            )
+            or (
+                # Bajada/deck bajo el titulo.
+                10.8 <= block.font_size < 14.0
+                and width >= page_width * 0.35
+                and 12 <= word_count <= 45
+                and not re.search(r"[.!?]$", compact)
+            )
         )
         if is_banner_title:
             titles.append(block)
@@ -528,16 +601,18 @@ def sort_blocks_by_columns(blocks: list[TextBlock], page_width: float) -> list[T
                 continue
 
         # Emite una columna completa a la vez (flujo periodistico clasico).
+        # Solo titulos anchos/masthead cortan la columna; bajadas locales no.
         progressed = False
         for idx, cluster in enumerate(clusters):
             if column_cursors[idx] >= len(cluster):
                 continue
-            # Si el siguiente titulo esta en medio de esta columna, corta ahi.
-            limit_y = (
-                titles_sorted[title_index].y0
-                if title_index < len(titles_sorted)
-                else float("inf")
-            )
+            limit_y = float("inf")
+            if title_index < len(titles_sorted):
+                for title in titles_sorted[title_index:]:
+                    title_width = title.x1 - title.x0
+                    if title.font_size >= 28.0 or title_width >= full_width * 0.85:
+                        limit_y = title.y0
+                        break
             while column_cursors[idx] < len(cluster) and cluster[column_cursors[idx]].y0 < limit_y:
                 ordered.append(cluster[column_cursors[idx]])
                 column_cursors[idx] += 1
@@ -568,6 +643,27 @@ def same_column(previous: TextBlock, current: TextBlock, page_width: float) -> b
     return True
 
 
+def is_newsroom_credit(text: str) -> bool:
+    """Creditos tipicos de redaccion en tipografia muy chica."""
+    compact = text.strip()
+    return bool(
+        re.fullmatch(
+            r"(De la Redacci[oó]n|Redacci[oó]n|Staff|Agencias?|Corresponsal(?:es)?)\.?",
+            compact,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
+def looks_like_upper_author_line(text: str) -> bool:
+    """Linea de autor en mayusculas (corta); no titulares largos."""
+    compact = text.strip().lstrip("-–— ").strip()
+    if not is_short_upper_line(compact, max_length=40):
+        return False
+    parts = re.sub(r"[./]", " ", compact).split()
+    return 2 <= len(parts) <= 5
+
+
 def is_author_byline(text: str, font_size: float) -> bool:
     """Credito de autor tipico: nombre en title case y tipografia chica."""
     if font_size > 9.5:
@@ -575,6 +671,15 @@ def is_author_byline(text: str, font_size: float) -> bool:
     compact = text.strip()
     if not compact or len(compact) > 60 or re.search(r"[.!?]$", compact):
         return False
+    if is_newsroom_credit(compact):
+        return True
+    # Email de autor
+    if re.fullmatch(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", compact):
+        return True
+    # "- ROBERTO AGUILAR" / "ROBERTO AGUILAR" / "VÍCTOR CHÁVEZ"
+    stripped = compact.lstrip("-–— ").strip()
+    if is_short_upper_line(stripped, max_length=40) and 2 <= len(stripped.split()) <= 5:
+        return True
     return bool(
         re.match(
             r"^[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ.]+){1,5}$",
@@ -618,16 +723,56 @@ def page_text_human(
         previous_is_author_credit = bool(
             merged_blocks and is_author_byline(previous_text, previous_font)
         )
+        next_is_author_credit = is_author_byline(block.text.strip(), block.font_size)
+        # Evita fusionar dos parrafos de cuerpo cuando el anterior no cierra con punto.
+        new_paragraph_boundary = (
+            len(previous_text) >= 90
+            and bool(re.match(r"^[A-ZÁÉÍÓÚÜÑ¿¡\"«]", block.text.strip()))
+            and not re.search(r"[,:;]$", previous_text)
+            and abs(previous_font - block.font_size) <= 2.5
+            and previous_font <= 12.5
+        )
+        next_is_all_caps = bool(
+            re.match(
+                r"^[A-ZÁÉÍÓÚÜÑ0-9][A-ZÁÉÍÓÚÜÑ0-9\s.,;:¿?¡!\"'()-]{2,}$",
+                block.text.strip(),
+            )
+        )
+        both_upper_headings = (
+            is_short_upper_line(previous_text, max_length=80)
+            and next_is_all_caps
+            and previous_font >= 12.0
+            and block.font_size >= 12.0
+        )
+        # Titular/bajada corta seguida de lead de nota.
+        subhead_to_body_boundary = (
+            len(previous_text.split()) <= 14
+            and previous_font >= 10.5
+            and not re.search(r"[.!?]$", previous_text)
+            and bool(
+                re.match(
+                    r"^(En|El|La|Los|Las|Un|Una|Por|Para|Tras|Seg[uú]n)\s",
+                    block.text.strip(),
+                )
+            )
+            and not re.match(
+                r"^(En|El|La|Los|Las|Un|Una|Por|Para|Tras|Seg[uú]n)\s",
+                previous_text,
+            )
+        )
         if (
             merged_blocks
             and same_column(merged_blocks[-1], block, page_width)
-            and not previous_is_short_heading
+            and (not previous_is_short_heading or both_upper_headings)
             and not previous_is_author_credit
+            and not next_is_author_credit
             and compatible_font
             and not heading_to_body_boundary
             and not title_to_body_boundary
+            and not subhead_to_body_boundary
+            and not new_paragraph_boundary
             and not re.search(r'[.!?:"”)]$', merged_blocks[-1].text)
-            and not re.match(r"^[A-ZÁÉÍÓÚÜÑ0-9][A-ZÁÉÍÓÚÜÑ0-9\s.,;:¿?¡!\"'()-]{2,}$", block.text)
+            and not (next_is_all_caps and not both_upper_headings)
         ):
             merged_blocks[-1].text = f"{merged_blocks[-1].text} {block.text}"
             merged_blocks[-1].x0 = min(merged_blocks[-1].x0, block.x0)
@@ -647,12 +792,19 @@ def page_text_human(
     ):
         text_blocks[0:2] = [f"{text_blocks[0]} {text_blocks[1]}"]
 
-    author_start = 1 if len(text_blocks) > 1 else 0
+    # Une solo lineas de autores en mayusculas cortas, no titulares largos.
+    author_start = 0
+    while author_start < len(text_blocks) and not looks_like_upper_author_line(
+        text_blocks[author_start]
+    ):
+        author_start += 1
     author_end = author_start
-    while author_end < len(text_blocks) and is_short_upper_line(text_blocks[author_end]):
+    while author_end < len(text_blocks) and looks_like_upper_author_line(text_blocks[author_end]):
         author_end += 1
     if author_end - author_start > 1:
-        text_blocks[author_start:author_end] = [" / ".join(text_blocks[author_start:author_end])]
+        text_blocks[author_start:author_end] = [
+            " / ".join(text_blocks[author_start:author_end])
+        ]
 
     index = 0
     while index < len(text_blocks) - 1:
