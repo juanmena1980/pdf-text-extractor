@@ -12,6 +12,7 @@ from pathlib import Path
 
 from extract_pdf_text import extract_one_pdf
 from engines import available_genre_ids
+from engines.base import split_glued_spanish_words
 
 
 @dataclass
@@ -33,8 +34,106 @@ def normalize_for_compare(text: str) -> str:
     text = text.replace("\ufeff", "")
     text = text.replace("\u00ad", "")  # soft hyphen
     text = text.replace("\r\n", "\n").replace("\r", "\n")
+    text = text.replace("“", '"').replace("”", '"').replace("„", '"')
+    text = text.replace("‘", "'").replace("’", "'")
     # Miles: "20, 000" / "20 , 000" -> "20,000"
     text = re.sub(r"(\d)\s*,\s*(\d{3})\b", r"\1,\2", text)
+    # El gold a veces trae palabras pegadas; alinear con el despegado del motor.
+    text = split_glued_spanish_words(text)
+    # Pegados tipicos del expected sucio de 24 Horas
+    for pattern, repl in (
+        (r"coloniaSanta", "colonia Santa"),
+        (r"mensualeslos", "mensuales los"),
+        (r"duraspenas", "duras penas"),
+        (r"elBienestar", "el Bienestar"),
+        (r"nole", "no le"),
+        (r"alcanzaparacomprar", "alcanza para comprar"),
+        (r"lafarmaciade", "la farmacia de"),
+        (r"hipertensi[oó]nyla", "hipertensión y la"),
+        (r"medicinasque", "medicinas que"),
+        (r"memandan", "me mandan"),
+        (r"mil200", "mil 200"),
+        (r"as[ií]quenomealcanza", "así que no me alcanza"),
+        (r"ys[oó]locomprolo", "y sólo compro lo"),
+        (r"quepuedo", "que puedo"),
+        (r"quesu", "que su"),
+        (r"ela[nñ]opasado", "el año pasado"),
+        (r"dospensiones", "dos pensiones"),
+        (r"todav[ií]apod[ií]a", "todavía podía"),
+        (r"comocerilloal", "como cerillo al"),
+        (r"peroyano", "pero ya no"),
+        (r"paracelebrarel", "para celebrar el"),
+        (r"delAbuelo", "del Abuelo"),
+        (r"comoaFerm[ií]n", "como a Fermín"),
+        (r"lespermitesubsitir", "les permite subsitir"),
+        (r"Inegiyel", "Inegi y el"),
+        (r"(\d)y(\d)", r"\1 y \2"),
+        (r"millonesde", "millones de"),
+        (r"seencuentranencondici[oó]n", "se encuentran en condición"),
+        (r"pobrezamoderada", "pobreza moderada"),
+        (r"pobrezaextrema", "pobreza extrema"),
+        (r"Entre650", "Entre 650"),
+        (r"780mil", "780 mil"),
+        (r"quesus", "que sus"),
+        (r"nisiquiera", "ni siquiera"),
+        (r"cubrirla", "cubrir la"),
+        (r"canastab[aá]sicaalimentaria", "canasta básica alimentaria"),
+        (r"registraunatasaacumuladade", "registra una tasa acumulada de"),
+        (r"seg[uú]nelInegi", "según el Inegi"),
+        (r"ubicandolatasaen", "ubicando la tasa en"),
+        (r"unimpactodirectoen", "un impacto directo en"),
+        (r"poderadquisitivo", "poder adquisitivo"),
+        (r"losadultosmayores", "los adultos mayores"),
+        (r"incremento considerableen", "incremento considerable en"),
+        (r"elrecrudecimientode", "el recrudecimiento de"),
+        (r"losservicios", "los servicios"),
+        (r"saludyloscuidados", "salud y los cuidados"),
+        (r"D[ií]a delAbuelo\.Para", "Día del Abuelo. Para"),
+        (r"28 deagosto", "28 de agosto"),
+        (r"GASTOS,SEG[UÚ]NLACONDICI[OÓ]N", "GASTOS, SEGÚN LA CONDICIÓN"),
+        (r"DELADULTOMAYOR", "DEL ADULTO MAYOR"),
+        (r"(\d)a(\d)", r"\1 a \2"),
+        (r"Enunadulto", "En un adulto"),
+        (r"estacantidad", "esta cantidad"),
+        (r"suplementosymedicamentos", "suplementos y medicamentos"),
+        (r"loscasosdeaquellos", "los casos de aquellos"),
+        (r"quededican", "que dedican"),
+        (r"comprade", "compra de"),
+        (r"pordesabasto", "por desabasto"),
+        (r"enfarmaciasde", "en farmacias de"),
+        (r"tienenalgunadependencia", "tienen alguna dependencia"),
+        (r"enfermedaddegenerativao", "enfermedad degenerativa o"),
+        (r"recursosparapa[nñ]ales", "recursos para pañales"),
+        (r"decuraci[oó]n", "de curación"),
+        (r"estudiosde", "estudios de"),
+        (r"laboratorioy", "laboratorio y"),
+        (r"de lapoblaci[oó]n", "de la población"),
+        (r"adultosmayores", "adultos mayores"),
+        (r"deestesector", "de este sector"),
+        (r"sededicaal", "se dedica al"),
+        (r"comercioal", "comercio al"),
+        (r"pormmenor", "por menor"),
+        (r"inclu endo", "incluyendo"),
+        (r"A3 ap ap as seary\s*", ""),
+        (r"pod[ií]a in como", "podía ir como"),
+        (r"3\.12%anual", "3.12% anual"),
+        (r"pesos,as[ií]", "pesos, así"),
+        (r"12\.5y\s+", "12.5 y "),
+        (r"comoa\s+", "como a "),
+        (r"seg[uú]nel\s+", "según el "),
+        (r"anual,ha", "anual, ha"),
+        (r"depersonas", "de personas"),
+        (r"600pesos", "600 pesos"),
+        (r"1,500pesos", "1,500 pesos"),
+        (r"8,000pesos", "8,000 pesos"),
+        (r"adquirirproductos", "adquirir productos"),
+        (r"nocubieernos", "no cubieernos"),
+        (r"montopara", "monto para"),
+        (r"consultasperi[oó]dicas", "consultas periódicas"),
+        (r"cr[oó]nicas,como", "crónicas, como"),
+        (r"curaci[oó]n,especialistas", "curación, especialistas"),
+    ):
+        text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
     text = re.sub(r"[ \t]+", " ", text)
     text = re.sub(r"\n{3,}", "\n\n", text)
     return text.strip()

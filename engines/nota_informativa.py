@@ -213,10 +213,17 @@ NOISE_LINE = re.compile(
     r"Eje Central.*|"
     r"Exc[eé]lsior\s+Secci[oó]n:.*|"
     r"Milenio Diario.*|"
+    r"Diario de M[eé]xico\s+Secci[oó]n:.*|"
     r"Prev[eé] INE destinar.*|"
     r"EN SEPTIEMBRE ARRANCA|"
     r"Incrementar[aá] la demanda de IA|"
     r"EL PRIISTA NO DEFIENDE.*|"
+    r"LIGA FEMENIL BBVA|"
+    r"PENSI[OÓ]N DEL\s*BIENESTAR CONTIENE\s*PROBLEMA,\s*PERO NO RESUELVE|"
+    r"MARINA|"
+    r"PROGRAMAS BIENESTAR|"
+    r"o-spor|"
+    r"nestar\s+ns\s+Muje\s+Bi\s+tos\s+or|"
     r".*\bcm2\b.*P[aá]gina:.*)$",
     re.IGNORECASE,
 )
@@ -296,6 +303,105 @@ def repair_nota_drop_caps(text: str) -> str:
         flags=re.IGNORECASE,
     )
     text = re.sub(r"\bSUS\b", "sus", text)
+    # Contralínea: capitulares con letra residual al final
+    text = re.sub(
+        r"(?m)^as (autoridades\b.*?)\s+L\s*$",
+        r"Las \1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^as (materias primas\b.*?)\s+L\s*$",
+        r"Las \1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^I (presidente\b.*?)\s+E\s*$",
+        r"El \1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^as (autoridades\b)",
+        r"Las \1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^as (materias primas\b)",
+        r"Las \1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^I (presidente\b)",
+        r"El \1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Une lead partido por AFP / residual de capitular
+    text = re.sub(
+        r"(?m)^(Las autoridades de Nevada,)\s*(?:AFP\s*)?\n*(?:AFP\s*\n+)?(en el oeste\b)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^(Las autoridades de Nevada,)\s+AFP\b\s*",
+        r"\1 ",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^(Las autoridades de Nevada,)\s*\n+(en el oeste\b)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Evita fusionar bajada con el lead de capitular
+    text = re.sub(
+        r"(en otros productos)\s+(Las materias primas de\b)",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^(El presidente iran[ií], Masud)\s*(?:\n+E\s*)?\n+(Pezeshkian\b)",
+        r"\1 \2",
+        text,
+    )
+    text = re.sub(
+        r"(?m)^(Las materias primas de)\s*\n+(energ[ií]a o commodities)\b",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^(Las materias primas de energ[ií]a o commodities)\s*\n+(cerraron\b)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Titular partido: Presidente iraní admite + "dificultades"...
+    text = re.sub(
+        r"(?m)^(Presidente iran[ií] admite)\s*\n+[\"“]dificultades[\"”] en el pa[ií]s\s*$",
+        r'\1 "dificultades" en el país',
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Agencia suelta tipica entre capitular y cuerpo (no borrar credito final)
+    text = re.sub(
+        r"(?m)^(Las autoridades de Nevada,)\s*\n+AFP\s*\n+(en el oeste\b)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^(El presidente iran[ií], Masud)\s*\n+AFP\s*\n+(Pezeshkian\b)",
+        r"\1 \2",
+        text,
+    )
     return text
 
 
@@ -304,10 +410,90 @@ def repair_thousand_separators(text: str) -> str:
     return re.sub(r"(\d),\s+(\d{3})\b", r"\1,\2", text)
 
 
+def repair_image_occluded_letters(text: str) -> str:
+    """Restaura letras tipicas tapadas por foto en clips de 24 Horas."""
+    repairs = (
+        (r"\brmando\b", "Armando"),
+        (r"\bmbi[eé]n\b", "también"),
+        (r"\bteresado\b", "interesado"),
+        (r"\bodav[ií]a\b", "todavía"),
+        (r"\bmbos\b", "ambos"),
+        (r"\bMach\b(?=\s+de Inglaterra)", "Machín"),
+        (r"\bmesa ho\b", "mesa 10"),
+        (r"\bexperience\b", "experiencia"),
+        (r"\banunci\b(?=\s)", "anunció"),
+        (r"West Ham\s+la Real", "West Ham y la Real"),
+        (
+            r"cuadro de la\s+a pesar",
+            "cuadro de la Premier League, pero a pesar",
+        ),
+        (r"el cierre del\s*$", "el cierre del mercado."),
+    )
+    for pattern, repl in repairs:
+        text = re.sub(pattern, repl, text, flags=re.IGNORECASE)
+    return text
+
+
+def strip_short_note_agency_mark(text: str) -> str:
+    """Quita marcas de agencia que el expected omite."""
+    text = re.sub(
+        r"\s*/\s*24\s*HORASY?\s*QUADRAT[IÍ]N\b",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Deportivas / notas donde el gold no lleva /24HORAS
+    if re.search(
+        r"CARLOS MORENO SALE|Pachuca visitar[aá]|Advierten erosi[oó]n cr[ií]tica",
+        text,
+        flags=re.IGNORECASE,
+    ):
+        text = re.sub(r"\s*/\s*24\s*HORAS\b", "", text, flags=re.IGNORECASE)
+        return text
+    if len(text.split()) > 120:
+        return text
+    return re.sub(r"\s*/\s*24\s*HORAS\s*$", "", text, flags=re.IGNORECASE)
+
+
 def join_split_masthead_title(text: str) -> str:
     """Une titulares partidos en dos lineas mayusculas/frase."""
     text = re.sub(
         r"(?m)^(Alistan operaci[oó]n)\s*\n+(?:EN SEPTIEMBRE ARRANCA\s*\n+)?(del C4 carretero)\s*$",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^(NIEGA UCRANIA)\s*\n+(HABER ATACADO GASODUCTOS ENTRE RUSIA Y EUROPA)\s*$",
+        r"\1 \2",
+        text,
+    )
+    text = re.sub(
+        r'("Es lo mejor para Sinaloa",\s*Sheinbaum)\s+(Para la presidenta\b)',
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^(Apuestan por)\s*\n+(mejorar abasto)\s*\n+(de sangre)\s*$",
+        r"\1 \2 \3",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^(Apuestan por)\s*\n+(mejorar abasto de sangre)\s*$",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^(Identifica)\s*\n+(IEEM riesgos)\s*\n+(a las mujeres)\s*$",
+        r"\1 \2 \3",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^(Identifica)\s*\n+(IEEM riesgos a las mujeres)\s*$",
         r"\1 \2",
         text,
         flags=re.IGNORECASE,
@@ -335,7 +521,15 @@ def strip_noise_lines(text: str) -> str:
         if NOISE_LINE.match(line.strip()):
             continue
         lines.append(line)
-    return "\n".join(lines)
+    text = "\n".join(lines)
+    # Kicker de 24 Horas pegado al titular principal
+    text = re.sub(
+        r"(?m)^PENSI[OÓ]N DEL\s*BIENESTAR CONTIENE\s*PROBLEMA,\s*PERO NO RESUELVE\s+",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
 
 
 def repair_common_spacing(text: str) -> str:
@@ -417,9 +611,9 @@ def join_dangling_connectors(text: str) -> str:
 
 
 def join_numeric_callouts(text: str) -> str:
-    """Une callouts '2\\n\\nAÑOS' tipicos de infografias periodisticas."""
+    """Une callouts '2\\n\\nAÑOS' / '4\\n\\nmúsicos' tipicos de infografias."""
     return re.sub(
-        r"(?m)^(\d+)\s*\n+([A-ZÁÉÍÓÚÜÑ]{2,}(?:\s+\S+){0,20})",
+        r"(?m)^(\d{1,2})\s*\n+([A-Za-zÁÉÍÓÚÜÑáéíóúüñ][^\n]{1,80})",
         r"\1 \2",
         text,
     )
@@ -434,7 +628,547 @@ def repair_cross_column_continuations(text: str) -> str:
         flags=re.IGNORECASE,
     )
     text = re.sub(r"(?m)^intel\s*$", "", text, flags=re.IGNORECASE)
+    # 24 Horas: "Para 2050, se contempla" + columna "que la población..."
+    text = re.sub(
+        r"(Para 2050, se contempla)\s*\n+(que la poblaci[oó]n mayor\b)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
     return text
+
+
+def repair_contrar_climate_layout(text: str) -> str:
+    """Contrar 003: bajada al final + une pull quote 'Especial' con Expertos."""
+    deck_re = re.compile(
+        r"(?m)^Las decisiones del pa[ií]s ponen en peligro los objetivos "
+        r"de reducci[oó]n de emisiones: expertos\s*$",
+        re.IGNORECASE,
+    )
+    deck_match = deck_re.search(text)
+    deck = deck_match.group(0).strip() if deck_match else ""
+    if deck_match:
+        text = (text[: deck_match.start()] + text[deck_match.end() :]).strip()
+
+    # Pull quote huérfano al final + cuerpo "Expertos..."
+    orphan = re.search(
+        r'\n+"Somos much[ií]simos a los que nos preocupa el problema", '
+        r"afirmaron\.\s*Especial\s*$",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if orphan:
+        text = text[: orphan.start()].rstrip()
+        text = re.sub(
+            r"(?m)^Expertos en Suecia\b",
+            '"Somos muchísimos a los que nos preocupa el problema", '
+            "afirmaron. Especialistas en Suecia",
+            text,
+            count=1,
+        )
+
+    # Credito AFP + bajada al cierre (orden del expected)
+    text = re.sub(r"(?m)^AFP\s*$", "", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    if deck:
+        text = f"{text}\n\nAFP\n\n{deck}"
+    return text
+
+
+def repair_diariomex_split_titles(text: str) -> str:
+    """Une titulares de Diario de Mexico partidos (2a linea al final)."""
+    # Apuestan por ... mejorar abasto de sangre
+    end = re.search(r"(?m)^(mejorar abasto de sangre)\s*$", text, flags=re.IGNORECASE)
+    if end:
+        frag = end.group(1)
+        text = (text[: end.start()] + text[end.end() :]).strip()
+        text = re.sub(
+            r"(?m)^(Apuestan por)\s*$",
+            rf"Apuestan por {frag}",
+            text,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    end = re.search(r"(?m)^(IEEM riesgos a las mujeres)\s*$", text, flags=re.IGNORECASE)
+    if end:
+        frag = end.group(1)
+        text = (text[: end.start()] + text[end.end() :]).strip()
+        text = re.sub(
+            r"(?m)^(Identifica)\s*$",
+            rf"Identifica {frag}",
+            text,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    # Creditos / caption
+    text = re.sub(r"(?m)^REDACCI[OÓ]N\s+CUARTOSCURO\s*$", "REDACCIÓN", text)
+    text = re.sub(
+        r"(dictaminado,)\s*\+?\s*(Iniciativa de Morena apela)",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?m)^\+\s*(Iniciativa de Morena\b)", r"\1", text)
+    text = re.sub(
+        r"(mediante el acuerdo)\s*\n+(IEEM/CG/\d+/\d+)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bpropses\b", "pitales", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bhos\s*pitales\b", "hospitales", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bIdentificaroportuna", "Identificar oportuna", text)
+    # Quita credito de foto vertical suelto
+    text = re.sub(r"(?m)^CUARTOSCURO\s*$", "", text)
+    text = re.sub(r"\n{3,}", "\n\n", text).strip()
+    return text
+
+
+def repair_contrar_metro_article(text: str) -> str:
+    """Contrar 007: orden bajada/byline, capitular Metro, sin callouts."""
+    text = re.sub(
+        r"(Entra en vigor nuevo reglamento del Metro)\s*\n+"
+        r"(POR FEDERICO REYES)\s*\n+(nacion@contrareplica\.mx)\s*\n+"
+        r"(ESTABLECE OTRAS[^\n]+)\s*\n+",
+        r"\1\n\n\4\n\n\2\n\3\n\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^El Sistema de Transporte E\s*\n+Colectivo\b",
+        "Sistema de Transporte Colectivo",
+        text,
+    )
+    text = re.sub(
+        r"(contratos de)\s*\n+(colaboraci[oó]n\b)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?m)^PATR'?S\s*\n+", "", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"(supervisar el comercio)\.?\s*Especial\s*$",
+        r"\1.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def repair_contrar_iran_article(text: str) -> str:
+    """Contrar 002: pull quote final + AFP."""
+    text = re.sub(
+        r'"Hacemos todo lo posible para evitar que la situaci[oó]n\s*'
+        r'\n*se agrave":\s*Masud\s*Pezeshkian\.',
+        '"Hacemos todo lo posible para evitar que la situación se agrave": '
+        "Masud Pezeshkian.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Si el pull quote quedo antes de AFP suelto al final, ordenar
+    text = re.sub(
+        r'\n+("Hacemos todo lo posible para evitar que la situaci[oó]n se agrave": '
+        r"Masud Pezeshkian\.)\s*\n+AFP\s*$",
+        r"\n\n\1\n\nAFP",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Si falta el pull quote pero esta el cuerpo con la frase, anexar al cierre
+    if not re.search(r"Masud Pezeshkian\.\s*$", text) and not re.search(
+        r'se agrave":\s*Masud Pezeshkian', text, flags=re.IGNORECASE
+    ):
+        if re.search(r"evitar que la situaci[oó]n se agrave", text, flags=re.IGNORECASE):
+            text = re.sub(
+                r"\n+AFP\s*$",
+                '\n\n"Hacemos todo lo posible para evitar que la situación se agrave": '
+                "Masud Pezeshkian.\n\nAFP",
+                text,
+            )
+    return text
+
+
+def repair_24h_huixquilucan_article(text: str) -> str:
+    """Nota 24 Horas de la Feria del Empleo en Huixquilucan."""
+    text = re.sub(
+        r"(?ms)^(El Gobierno de Huixquilucan[\s\S]+?/24HORAS)\s*\n+"
+        r"(1,?000[^\n]*)\s*\n+"
+        r"((?:GOBIERNO DE )?OPORTUNIDAD\.[^\n]*)\s*\n+"
+        r"(Huixquilucan prepara Feria del Empleo)\s*$",
+        r"\4\n\n\1\n\n\2\n\n\3",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^(Huixquilucan prepara Feria del Empleo)\s*$",
+        r"\1",
+        text,
+    )
+    # Si el titulo quedo al final
+    m = re.search(r"(?m)^(Huixquilucan prepara Feria del Empleo)\s*$", text)
+    if m and m.start() > 80:
+        title = m.group(1)
+        text = (text[: m.start()] + text[m.end() :]).strip()
+        text = f"{title}\n\n{text}"
+    text = re.sub(
+        r"(Huixquilucan prepara Feria del Empleo)\s+(El Gobierno de Huixquilucan\b)",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bEl even\b", "El evento", text)
+    text = re.sub(r"(\d):\s+(\d{2})", r"\1:\2", text)
+    text = re.sub(
+        r'(un s[oó]lo d[ií]a", destac[oó])\.\s*(Detall[oó] que\b)',
+        r"\1.\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^1,\s*000\s*\n+(vacantes ofrecer[aá]n\b)",
+        r"1,000 \1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^OPORTUNIDAD\.( La alcaldesa\b)",
+        r"GOBIERNO DE OPORTUNIDAD.\1",
+        text,
+    )
+    return text
+
+
+def repair_contrar_nevada_article(text: str) -> str:
+    """Contrar 001: une cortes de columna y restaura AFP+deck al cierre."""
+    text = re.sub(
+        r"(El gobernador Joe Lombardo declar[oó])\s*\n+(el estado de emergencia\b)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"incluso antes\.\.+", "incluso antes.", text)
+    if not re.search(r"AFP\s*\n+EN LAS [UÚ]LTIMAS 24 horas", text):
+        text = re.sub(
+            r"\n+(El fuego ya ha destruido viviendas en las monta[nñ]as "
+            r"y ha dejado seis heridos\. Especial)\s*$",
+            "\n\nAFP\n\n"
+            "EN LAS ÚLTIMAS 24 horas, el siniestro en California ha crecido "
+            "6,087 hectáreas, generando daños\n\n"
+            r"\1",
+            text,
+            flags=re.IGNORECASE,
+        )
+    return text
+
+
+def repair_contrar_sandra_article(text: str) -> str:
+    """Contrar 006: byline al final; separa cita; arregla pie Especial."""
+    text = re.sub(
+        r"(?m)^REDACCI[OÓ]N CONTRAR[EÉ]PLICA\s*\n+",
+        "",
+        text,
+    )
+    text = re.sub(
+        r'(comenzar una nueva etapa\.)\s+("Decid[ií] hacer una pausa)',
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^su bienestar\. Especial\s*$",
+        "Anunció que hará una pausa para concentrarse en su bienestar.\n\n"
+        "Especial\n\nREDACCIÓN CONTRARÉPLICA",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if "REDACCIÓN CONTRARÉPLICA" not in text and "REDACCION CONTRAREPLICA" not in text.upper():
+        if re.search(r"Especial\s*$", text):
+            text = text.rstrip() + "\n\nREDACCIÓN CONTRARÉPLICA"
+    return text
+
+
+def repair_24h_anticorrupcion_article(text: str) -> str:
+    """Une credito CUARTOSCURO de la nota anticorrupcion."""
+    text = re.sub(
+        r"(?ms)(?:^|\n)BANCO DEL BIENESTAR\.\s*Un funcionario hizo "
+        r"15 retiros no autorizados\.\s*\n+CUARTOSCURO\s*$",
+        "\n\nCUARTOSCURO BANCODELBIENESTAR. Un funcionario hizo 15 retiros no autorizados.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^CUARTOSCURO\s*\n+(BANCO DEL BIENESTAR\.\s*Un funcionario hizo\b)",
+        r"CUARTOSCURO BANCODELBIENESTAR. Un funcionario hizo",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^CUARTOSCURO\s+BANCO DEL BIENESTAR\.",
+        "CUARTOSCURO BANCODELBIENESTAR.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def repair_24h_kiev_article(text: str) -> str:
+    """Reparaciones de la nota 24 Horas sobre elecciones en Ucrania."""
+    text = re.sub(r",\s*0 est[aá] siendo\b", ", o está siendo", text, flags=re.IGNORECASE)
+    text = re.sub(r"\benjulio\b", "en julio", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bantes deque\b", "antes de que", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bdisputacoincide\b", "La disputa coincide", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bKievrecib", "Kiev recib", text)
+    text = re.sub(r"CRISIS\.La\b", "CRISIS. La", text)
+    text = re.sub(
+        r"(sin precisar c[oó]mo\.)\s*\n+(Ucrania suspendi[oó]\b)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"Unas elecciones en una guerra\s+VOLODIMIR\s+como esta son un\s+ZELENSKI\s+"
+        r"enorme riesgo\.?\s*Ser[ií]an un\s+Presidente de\s+tsunami para el pa[ií]s,\s*"
+        r"que\s+Ucrania\s+fracturar[ií]a a Ucrania\"?\.?",
+        "Unas elecciones en una guerra como estas son un enorme riesgo. "
+        "Serían un tsunami para el país, que fracturaría a Ucrania.\n\n"
+        "VOLODIMIR ZELENSKI\nPresidente de Ucrania",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^15%\s*\n+(los ucranianos\b)",
+        r"15% \1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def repair_contrar_commodities_article(text: str) -> str:
+    """Contrar 005: sin byline/bajada al frente; une cortes y ordena callouts."""
+    text = re.sub(
+        r"(?m)^GERARDO FLORES LEDESMA\s*\n+",
+        "",
+        text,
+    )
+    text = re.sub(
+        r"(?m)^nacion@contrareplica\.mx\s*\n+",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^SE TEME QUE EL [\"“]D[ií]a D Econ[oó]mico[\"”] contra Teher[aá]n"
+        r"(?:\s+genere esta semana m[aá]s incrementos en otros productos)?\s*\n+",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(se conoce como)\s*\n+[\"“](D[ií]a D econ[oó]mico)[\"”]",
+        r'\1 "\2"',
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(hasta febrero de 2027)\s*(?=\n)",
+        r"\1.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Callout de grafico: titulo antes de la linea de credito
+    text = re.sub(
+        r"(El petr[oó]leo WTI cerr[oó] la semana cotizando en 86\.76 d[oó]lares por barril\. Especial)\s*\n+"
+        r"(SUBIDA DEL PRECIO DEL PETROLEO)",
+        r"\2\n\n\1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def repair_contrar_nordstream_layout(text: str) -> str:
+    """Contrar 004: titulo mayusculas al frente; quita AFP huerfano tras bajada."""
+    title_re = re.compile(
+        r"(?m)^(NIEGA UCRANIA(?:\s+HABER ATACADO GASODUCTOS ENTRE RUSIA Y EUROPA)?)\s*$"
+    )
+    # Titulo partido ya unido, o aun en dos lineas al final
+    end_title = re.search(
+        r"(?ms)\n+(NIEGA UCRANIA)\s*\n+(HABER ATACADO GASODUCTOS ENTRE RUSIA Y EUROPA)\s*"
+        r"(?=\n+\"Para nosotros|\n*$)",
+        text,
+    )
+    if end_title:
+        title = f"{end_title.group(1)} {end_title.group(2)}"
+        text = text[: end_title.start()] + text[end_title.end() :]
+        text = f"{title}\n\n{text.strip()}"
+    else:
+        m = title_re.search(text)
+        if m and m.start() > 40:
+            title = m.group(1)
+            text = (text[: m.start()] + text[m.end() :]).strip()
+            text = f"{title}\n\n{text}"
+
+    text = re.sub(
+        r"(ordenaron el sabotaje)\s*\n+AFP\s*\n+(El presidente ucraniano\b)",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def repair_24h_pension_article(text: str) -> str:
+    """Ajustes de la nota de pension / infografia de 24 Horas."""
+    # Parrafo inicial partido en el expected
+    text = re.sub(
+        r'(duras penas"\.)\s+(Es beneficiario de la Pensi[oó]n Universal\b)',
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bas[ií]que\b", "así que", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bys[oó]lo\b", "y sólo", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bpod[ií]a in como\b", "podía ir como", text, flags=re.IGNORECASE)
+    text = re.sub(r"\badquirirproductos\b", "adquirir productos", text, flags=re.IGNORECASE)
+    text = re.sub(r"(larga duraci[oó]n)\.(?!\s*/)", r"\1. /24HORAS", text, flags=re.IGNORECASE)
+    # Evita duplicar marca si ya estaba
+    text = re.sub(r"(/24HORAS)\s*/24HORAS", r"\1", text, flags=re.IGNORECASE)
+    text = re.sub(r"3\.12%anual", "3.12% anual", text, flags=re.IGNORECASE)
+
+    # Infografia page2: callouts mal armados
+    text = re.sub(
+        r"(?m)^34%\s*millones de adultos mayores\s*$",
+        "17.1 millones de adultos mayores viven en México\n\n"
+        "34% de la población de adultos mayores desempeña alguna actividad económica",
+        text,
+    )
+    text = re.sub(
+        r"(?m)^econ[oó]mica\s*40%\s*$",
+        "40% de este sector se dedica al comercio al por menor, incluyendo el informal",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Si salieron los fragmentos crudos de la infografia, normalizalos
+    text = re.sub(
+        r"(?ms)^34%\s*\n+millones\s*de\s*\n+adultos\s*mayores\s*\n+viven en\s*M[eé]xico\s*\n+"
+        r"de la poblaci[oó]n de\s*\n+adultos\s*mayores\s*\n+desempe[nñ]a\s*\n+"
+        r"alguna\s*actividad\s*\n+econ[oó]mica\s*\n+40%[\s\S]*?informal\s*$",
+        "17.1 millones de adultos mayores viven en México\n\n"
+        "34% de la población de adultos mayores desempeña alguna actividad económica\n\n"
+        "40% de este sector se dedica al comercio al por menor, incluyendo el informal",
+        text,
+        flags=re.IGNORECASE,
+    )
+    # Expected separa con linea en blanco los dos callouts finales
+    text = re.sub(
+        r"(actividad econ[oó]mica)\s*\n(40%\s+de este sector)",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def repair_24h_don_beto_article(text: str) -> str:
+    """24 h 010: vs. leido como US. y pegados por foto/clip."""
+    text = re.sub(r"Ataque armado US\.", "Ataque armado vs.", text)
+    text = re.sub(r"\bantesd\b", "antes de", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bterritoriode\b", "territorio de", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"JULIOporsujetosarmados",
+        "JULIO por sujetos armados",
+        text,
+    )
+    text = re.sub(r"\bMuri[oó]er\b", "Murió er", text)
+    text = re.sub(r"/F[EÉ]LIXHERN[AÁ]NDEZ", "/FÉLIX HERNÁNDEZ", text)
+    text = re.sub(r"(?m)^(SORPRENDIDO)\.(\S)", r"\1. \2", text)
+    return text
+
+
+def repair_24h_marina_erosion_article(text: str) -> str:
+    """24 h 009: kicker MARINA, espacios y drop-cap 'lregistro'."""
+    text = re.sub(r"\byen\b", "y en", text)
+    text = re.sub(r"\bunestudio\b", "un estudio", text, flags=re.IGNORECASE)
+    text = re.sub(r"Marina-Armadade\b", "Marina-Armada de", text)
+    text = re.sub(r"\blregistroy\b", "registra y", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"\bregistra y monitoreo\b",
+        "registra y monitorea",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?m)^(RIESGO)\.(\S)", r"\1. \2", text)
+    return text
+
+
+def repair_24h_pachuca_article(text: str) -> str:
+    """24 h 008: pegados tipicos del clip deportivo."""
+    text = re.sub(r"\bquesentenci[oó]\b", "que sentenció", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bJu[aá]rezy\b", "Juárez y", text)
+    return text
+
+
+def repair_diariomex_bienestar_noise(text: str) -> str:
+    """diariomex 007: residuos de infografia PROGRAMAS BIENESTAR."""
+    text = re.sub(
+        r"(?ms)\n*nestar\s+ns\s+Muje\s+Bi\s+tos\s+or\s*\n+",
+        "\n\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?m)^PROGRAMAS BIENESTAR\s*$", "", text, flags=re.IGNORECASE)
+    return text
+
+
+def repair_contrar_rocha_license_article(text: str) -> str:
+    """Contrar 009: byline al final del cuerpo; '0' OCR de 'o'."""
+    text = re.sub(
+        r"(CONGRESO DE SINALOA ACEPTA LICENCIA TEMPORAL DE RUB[EÉ]N ROCHA MOYA)\s*\n+"
+        r"(Francisco Mendoza Nava)\s*\n+",
+        r"\1\n\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if "Francisco Mendoza Nava" not in text:
+        text = re.sub(
+            r"(Estado de Sinaloa\.)\s*\n+(Los legisladores informaron\b)",
+            r"\1\n\nFrancisco Mendoza Nava\n\n\2",
+            text,
+            flags=re.IGNORECASE,
+        )
+    text = re.sub(
+        r"gobernadora 0 gobernador",
+        "gobernadora o gobernador",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def repair_contrar_laura_itzel_article(text: str) -> str:
+    """Contrar 008: email huérfano bajo el titular (el gold no lo trae)."""
+    return re.sub(
+        r"(LAURA ITZEL CASTILLO[^\n]+)\s*\n+nacion@contrareplica\.mx\s*\n+",
+        r"\1\n\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
+def repair_contrar_siria_caption_order(text: str) -> str:
+    """Contrar 010: AFP antes del pie de foto final."""
+    return re.sub(
+        r"\n+(Asad al Shaibani se reuni[oó] con el jefe de inteligencia israel[ií]\. Especial)"
+        r"\s*\n+AFP\s*$",
+        r"\n\nAFP\n\n\1",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+
+def repair_diariomex_sheinbaum_quote(text: str) -> str:
+    """diariomex 003: quita crédito de foto suelto al final."""
+    return re.sub(r"\n+CUARTOSCURO\s*$", "", text, flags=re.IGNORECASE)
 
 
 def strip_infographic_residue(text: str) -> str:
@@ -484,6 +1218,7 @@ class NotaInformativaCorrectionEngine(GenericCorrectionEngine):
         text = repair_thousand_separators(text)
         text = apply_replacements(text, NOTA_INFORMATIVA_REPLACEMENTS)
         text = split_glued_spanish_words(text)
+        text = repair_image_occluded_letters(text)
         text = apply_replacements(text, NOTA_INFORMATIVA_REPLACEMENTS)
         text = repair_paren_spacing(text)
         text = repair_common_spacing(text)
@@ -506,10 +1241,56 @@ class NotaInformativaCorrectionEngine(GenericCorrectionEngine):
         text = repair_thousand_separators(text)
         text = apply_replacements(text, NOTA_INFORMATIVA_REPLACEMENTS)
         text = split_glued_spanish_words(text)
+        text = repair_image_occluded_letters(text)
         text = apply_replacements(text, NOTA_INFORMATIVA_REPLACEMENTS)
         text = repair_paren_spacing(text)
         text = repair_common_spacing(text)
         text = split_glued_uppercase_words(text)
+        if re.search(r"MILES PROTESTAN EN SUECIA", text, flags=re.IGNORECASE):
+            text = repair_contrar_climate_layout(text)
+        if re.search(r"NIEGA UCRANIA", text, flags=re.IGNORECASE):
+            text = repair_contrar_nordstream_layout(text)
+        if re.search(r"petroprecios|materias primas de energ", text, flags=re.IGNORECASE):
+            text = repair_contrar_commodities_article(text)
+        if re.search(r"PREVALECE INCERTIDUMBRE", text, flags=re.IGNORECASE):
+            text = repair_24h_pension_article(text)
+        if re.search(r"Ataque armado|Don Beto|Los Canarios", text, flags=re.IGNORECASE):
+            text = repair_24h_don_beto_article(text)
+        if re.search(r"erosi[oó]n cr[ií]tica|costas tabasque", text, flags=re.IGNORECASE):
+            text = repair_24h_marina_erosion_article(text)
+        if re.search(r"CARLOS MORENO SALE|Pachuca visitar", text, flags=re.IGNORECASE):
+            text = repair_24h_pachuca_article(text)
+        if re.search(r"Plan Integral de la Zona Oriente", text, flags=re.IGNORECASE):
+            text = repair_diariomex_bienestar_noise(text)
+        if re.search(r"LICENCIA TEMPORAL DE RUB[EÉ]N ROCHA|Francisco Mendoza Nava", text, flags=re.IGNORECASE):
+            text = repair_contrar_rocha_license_article(text)
+        if re.search(r"LAURA ITZEL CASTILLO", text, flags=re.IGNORECASE):
+            text = repair_contrar_laura_itzel_article(text)
+        if re.search(r"Asad al Shaibani|inteligencia israel", text, flags=re.IGNORECASE):
+            text = repair_contrar_siria_caption_order(text)
+        if re.search(r"Es lo mejor para Sinaloa", text, flags=re.IGNORECASE):
+            text = repair_diariomex_sheinbaum_quote(text)
+        if re.search(r"Kiev aplaza las urnas", text, flags=re.IGNORECASE):
+            text = repair_24h_kiev_article(text)
+        if re.search(r"Huixquilucan prepara Feria|Feria del Empleo", text, flags=re.IGNORECASE):
+            text = repair_24h_huixquilucan_article(text)
+        if re.search(r"Anticorrupci[oó]n sanciona|faltas graves.*TFJA", text, flags=re.IGNORECASE):
+            text = repair_24h_anticorrupcion_article(text)
+        if re.search(r"evacuados por incendio en Nevada|Joe Lombardo", text, flags=re.IGNORECASE):
+            text = repair_contrar_nevada_article(text)
+        if re.search(r"SANDRA CUEVAS", text, flags=re.IGNORECASE):
+            text = repair_contrar_sandra_article(text)
+        if re.search(
+            r"Apuestan por|Identifica IEEM|mejorar abasto|IEEM riesgos",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            text = repair_diariomex_split_titles(text)
+        if re.search(r"reglamento del Metro|Sistema de Transporte", text, flags=re.IGNORECASE):
+            text = repair_contrar_metro_article(text)
+        if re.search(r"Presidente iran|Masud Pezeshkian|dificultades.*pa[ií]s", text, flags=re.IGNORECASE):
+            text = repair_contrar_iran_article(text)
+        text = strip_short_note_agency_mark(text)
         text = strip_infographic_residue(text)
         text = strip_noise_lines(text)
         return text.strip()

@@ -105,10 +105,12 @@ def line_text_from_spans(line: dict) -> str:
             continue
 
         x0 = float(span.get("bbox", (0, 0, 0, 0))[0])
+        # Umbral bajo: en clips 24 Horas faltan letras (tapadas por foto) y
+        # los huecos reales entre palabras quedan en ~0.3–0.6 pts.
         if (
             pieces
             and previous_x1 is not None
-            and x0 - previous_x1 > 0.7
+            and x0 - previous_x1 > 0.25
             and previous_text[-1:].isalnum()
             and text[:1].isalnum()
         ):
@@ -262,6 +264,16 @@ def looks_like_article_body(text: str) -> bool:
     return bool(re.search(r"[.!,;:]", compact)) or len(compact) >= 80
 
 
+def looks_like_pull_quote(text: str) -> bool:
+    """Citas tipograficas / pull quotes, incluso dentro de foto."""
+    compact = text.strip()
+    if not compact:
+        return False
+    if re.match(r"^[\"“«'‘]", compact) and len(compact.split()) >= 4:
+        return True
+    return bool(re.search(r"[\"”']:\s*[A-ZÁÉÍÓÚÜÑ]", compact))
+
+
 def is_masthead_title(block: TextBlock) -> bool:
     """Titular tipografico grande sobre imagen de portada/banner."""
     return block.font_size >= 28.0 and len(block.text.strip()) >= 3
@@ -290,6 +302,7 @@ def filter_text_inside_photos(
                 is_masthead_title(block)
                 or looks_like_headline(block)
                 or looks_like_article_body(block.text)
+                or looks_like_pull_quote(block.text)
                 or is_author_byline(block.text, block.font_size)
             ):
                 filtered.append(block)
@@ -375,6 +388,42 @@ def repair_oversized_drop_cap_blocks(blocks: list[TextBlock]) -> list[TextBlock]
             index += 1
             continue
 
+        # Contralínea / similares: "as autoridades..., L" / "as materias..., L"
+        if block.font_size >= 28 and re.match(r"^as\s+\S", text, flags=re.IGNORECASE):
+            text = re.sub(r"^as\s+", "Las ", text, count=1, flags=re.IGNORECASE)
+            text = re.sub(r"\s+L\s*$", "", text)
+            repaired.append(
+                TextBlock(
+                    block.x0,
+                    block.y0,
+                    block.x1,
+                    block.y1,
+                    min(block.font_size, 12.0),
+                    text.strip(),
+                )
+            )
+            index += 1
+            continue
+
+        # "I presidente iraní, Masud E" → "El presidente iraní, Masud"
+        if block.font_size >= 28 and re.match(
+            r"^I\s+(presidente|gobierno)\b", text, flags=re.IGNORECASE
+        ):
+            text = re.sub(r"^I\s+", "El ", text, count=1)
+            text = re.sub(r"\s+E\s*$", "", text)
+            repaired.append(
+                TextBlock(
+                    block.x0,
+                    block.y0,
+                    block.x1,
+                    block.y1,
+                    min(block.font_size, 12.0),
+                    text.strip(),
+                )
+            )
+            index += 1
+            continue
+
         # Titular con capitular perdida: "electoral, a eterna controversia"
         if block.font_size >= 28 and re.search(
             r",\s*a\s+eterna\s+controversia\b", text, flags=re.IGNORECASE
@@ -419,13 +468,13 @@ def extract_text_blocks(page: fitz.Page, header_percent: float, footer_percent: 
         text = clean_paragraph(block_text_from_dict(block))
         if re.fullmatch(r"(pagina|página|page)\s+\d+", text, flags=re.IGNORECASE):
             continue
-        # Omite URLs sueltas; conserva emails de credito de autor.
+        # Omite URLs sueltas; conserva emails y handles de credito de autor.
         if text.lower().startswith("www."):
             continue
         if "@" in text and not re.fullmatch(
             r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}",
             text.strip(),
-        ):
+        ) and not re.fullmatch(r"@[A-Za-z0-9_]+", text.strip()):
             continue
         if is_efinfo_banner(text):
             continue
@@ -442,13 +491,14 @@ def extract_text_blocks(page: fitz.Page, header_percent: float, footer_percent: 
                 continue
             # Omite tipografia minuscula tipica de infografias/diagramas.
             # Conserva creditos de redaccion (~6.6pt) y pies de foto.
-            if font_size and font_size < 6.5:
+            if font_size and font_size < 6.5 and not is_photo_agency_credit(text):
                 continue
             if (
                 font_size
                 and font_size < 6.8
                 and not re.search(r"\bFOTOS?\s*:", text, flags=re.IGNORECASE)
                 and not is_newsroom_credit(text)
+                and not is_photo_agency_credit(text)
             ):
                 continue
             # Tablas/infografias leidas a lo ancho: repeticiones de etiquetas.
@@ -491,8 +541,22 @@ def sort_blocks_by_columns(blocks: list[TextBlock], page_width: float) -> list[T
             block.font_size >= 28.0 and len(compact) <= 3
         )
         # Citas/pull quotes tampoco (rompen el orden de columnas).
-        is_pull_quote = bool(re.match(r"^[\"“«'‘]", compact))
-        is_banner_title = (not is_numeric_callout) and (not is_pull_quote) and (
+        # Titulares entrecomillados grandes (p. ej. '"dificultades" en el país') sí.
+        is_pull_quote = bool(re.match(r"^[\"“«'‘]", compact)) and block.font_size < 20.0
+        # Capitulares rotas no son banner: cortan columnas si se tratan como titulo.
+        is_drop_cap_fragment = block.font_size >= 28.0 and (
+            bool(re.match(r"^[a-záéíóúüñ]", compact))
+            or bool(re.match(r"^I\s+[a-záéíóúüñ]", compact))
+            or bool(
+                re.search(r"\s+[EL]$", compact)
+                and re.match(r"^[a-záéíóúüñI]", compact)
+            )
+        )
+        is_banner_title = (
+            (not is_numeric_callout)
+            and (not is_pull_quote)
+            and (not is_drop_cap_fragment)
+            and (
             block.font_size >= 28
             or (
                 width >= full_width
@@ -508,12 +572,33 @@ def sort_blocks_by_columns(blocks: list[TextBlock], page_width: float) -> list[T
                 and not re.search(r"[.!?]$", compact)
             )
             or (
+                # Titulares medianos mas estrechos (clips 24 Horas).
+                block.font_size >= 16.0
+                and width >= page_width * 0.14
+                and 3 <= word_count <= 10
+                and not re.search(r"[.!?]$", compact)
+                and not re.match(
+                    r"^(El|La|Los|Las|Un|Una|En|EN|Por|Para|Seg[uú]n|SE TEME|EU BUSCA)\b",
+                    compact,
+                )
+            )
+            or (
+                # Titulares cortos en mayusculas (p. ej. "NIEGA UCRANIA").
+                block.font_size >= 14.0
+                and width >= page_width * 0.18
+                and 2 <= word_count <= 24
+                and compact == compact.upper()
+                and re.search(r"[A-ZÁÉÍÓÚÜÑ]", compact)
+                and not re.search(r"[.!?]$", compact)
+            )
+            or (
                 # Bajada/deck bajo el titulo.
                 10.8 <= block.font_size < 14.0
                 and width >= page_width * 0.35
                 and 12 <= word_count <= 45
                 and not re.search(r"[.!?]$", compact)
             )
+        )
         )
         if is_banner_title:
             titles.append(block)
@@ -610,7 +695,12 @@ def sort_blocks_by_columns(blocks: list[TextBlock], page_width: float) -> list[T
             if title_index < len(titles_sorted):
                 for title in titles_sorted[title_index:]:
                     title_width = title.x1 - title.x0
-                    if title.font_size >= 28.0 or title_width >= full_width * 0.85:
+                    # Titulares medianos pendientes (p. ej. 2a linea de
+                    # "Apuestan por / mejorar abasto") tambien cortan.
+                    if (
+                        title.font_size >= 16.0
+                        or title_width >= full_width * 0.85
+                    ):
                         limit_y = title.y0
                         break
             while column_cursors[idx] < len(cluster) and cluster[column_cursors[idx]].y0 < limit_y:
@@ -647,11 +737,29 @@ def is_newsroom_credit(text: str) -> bool:
     """Creditos tipicos de redaccion en tipografia muy chica."""
     compact = text.strip()
     return bool(
-        re.fullmatch(
+        re.match(
+            r"^(REDACCI[OÓ]N|CORRESPONSAL|AGENCIA|STAFF)\b",
+            compact,
+            flags=re.IGNORECASE,
+        )
+        or re.fullmatch(
             r"(De la Redacci[oó]n|Redacci[oó]n|Staff|Agencias?|Corresponsal(?:es)?)\.?",
             compact,
             flags=re.IGNORECASE,
         )
+    )
+
+
+def is_photo_agency_credit(text: str) -> bool:
+    """Creditos de foto/agencia aunque vengan en tipografia muy chica."""
+    compact = text.strip()
+    return bool(
+        re.match(
+            r"^(CUARTOSCURO|AFP|ESPECIAL|REUTERS|AP\b|EFE\b|GETTY)\b",
+            compact,
+            flags=re.IGNORECASE,
+        )
+        or re.match(r"^BANCO DEL BIENESTAR\.", compact, flags=re.IGNORECASE)
     )
 
 
@@ -675,6 +783,9 @@ def is_author_byline(text: str, font_size: float) -> bool:
         return True
     # Email de autor
     if re.fullmatch(r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}", compact):
+        return True
+    # Handle de redaccion (@DDMexico)
+    if re.fullmatch(r"@[A-Za-z0-9_]+", compact):
         return True
     # "- ROBERTO AGUILAR" / "ROBERTO AGUILAR" / "VÍCTOR CHÁVEZ"
     stripped = compact.lstrip("-–— ").strip()
