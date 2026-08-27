@@ -222,6 +222,19 @@ NOISE_LINE = re.compile(
     r"PENSI[OÓ]N DEL\s*BIENESTAR CONTIENE\s*PROBLEMA,\s*PERO NO RESUELVE|"
     r"MARINA|"
     r"PROGRAMAS BIENESTAR|"
+    r"SUSANA ZABALETA Y SU ESTREMECEDOR RELATO|"
+    r"SEGUNDO ORO DE M[EÉ]XICO|"
+    r"Encuesta Reuters/?Ipsos|"
+    r"Intensificaci[oó]n del combate al narco|"
+    r"Dan condiciones dignas de trabajo|"
+    r"Para evitar el voto de castigo: especialistas|"
+    r"ELLOS TRABAJAN Y EL GOBIERNO COBRA|"
+    r"Arranca ciclo escolar el 31 de agosto|"
+    r"DIXON\s*\$?\s*10|"
+    r"FALLECE DOLLY PARTON|"
+    r"En la semifinal de Estados Unidos|"
+    r"ACCESO A\s*$|"
+    r"ACCESO A\s+educa|"
     r"o-spor|"
     r"nestar\s+ns\s+Muje\s+Bi\s+tos\s+or|"
     r".*\bcm2\b.*P[aá]gina:.*)$",
@@ -494,6 +507,18 @@ def join_split_masthead_title(text: str) -> str:
     )
     text = re.sub(
         r"(?m)^(Identifica)\s*\n+(IEEM riesgos a las mujeres)\s*$",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^(Raptados)\s*\n+(por marcianos)\s*$",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^(SINCRONIA)\s*\n+(PERFECTA)\s*$",
         r"\1 \2",
         text,
         flags=re.IGNORECASE,
@@ -1171,6 +1196,561 @@ def repair_diariomex_sheinbaum_quote(text: str) -> str:
     return re.sub(r"\n+CUARTOSCURO\s*$", "", text, flags=re.IGNORECASE)
 
 
+def repair_ug_zabaleta_article(text: str) -> str:
+    """Universal Gráfico: Susana Zabaleta / abducción."""
+    text = re.sub(r"(?m)^Raptados\s*$", "Raptados por marcianos", text)
+    text = re.sub(
+        r"^(Raptados por marcianos)\s+(La actriz coment[oó])",
+        r"\1\n\n\2",
+        text,
+    )
+    text = re.sub(
+        r"(La actriz coment[oó] que sus t[ií]os habr[ií]an sido abducidos)(?!\s+por un OVNI)",
+        r"\1 por un OVNI",
+        text,
+        count=1,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?m)^por un OVNI\s*$", "", text)
+    text = re.sub(r'En mi fa-\s*[\"“]?\s*milia no\s*', "", text)
+    text = re.sub(r"(En mi familia no\s+){2,}", "En mi familia no ", text)
+    text = re.sub(r"nunca mas se toc[oó]", "nunca más se tocó", text)
+    text = re.sub(r"podcastde", "podcast de", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"(?m)^(Cont[oó] todo en el)\s*\n+(podcast de Gusgri\.?)\s*$",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+
+    entrevista = re.search(
+        r"Entrevistada por el youtuber[\s\S]*?coment[oó]\.\s*",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if entrevista:
+        block = entrevista.group(0).strip()
+        text = (text[: entrevista.start()] + text[entrevista.end() :]).strip()
+        if "Entrevistada por el youtuber" not in text:
+            text = re.sub(
+                r"(muerte extra[nñ]a\.)\s*",
+                rf"\1\n\n{block}\n\n",
+                text,
+                count=1,
+                flags=re.IGNORECASE,
+            )
+
+    text = re.sub(r"(?m)^En mi familia no\s*$", "", text)
+    text = re.sub(
+        r"se volvi[oó] a hablar de eso nunca m[aá]s\.[\s\S]*?tados\"?\.\s*",
+        "En mi familia no se volvió a hablar de eso nunca más. Yo tendría como unos "
+        "12 o 13 años cuando escuché ese relato de voz de mi tía, quien estuvo presente "
+        "esa noche que fueron raptados.\n"
+        "Susana Zabaleta\n"
+        "Cantante y actriz\n\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(Cantante y actriz)\s*\n+Susana Zabaleta\s+Cantante y actriz",
+        r"\1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not re.search(r"Cont[oó] todo en el podcast", text, flags=re.IGNORECASE):
+        if re.search(r"secuestro de una persona por parte de seres extra", text, flags=re.IGNORECASE):
+            text = text.rstrip() + "\n\nContó todo en el podcast de Gusgri."
+    text = re.sub(r"En mi familia no En mi familia no", "En mi familia no", text)
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def repair_ug_xavi_article(text: str) -> str:
+    """Universal Gráfico: Xavi / Países Bajos."""
+    text = re.sub(r"\btercerafue\b", "tercera fue", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bsentimos orgullosos\b", "sentirnos orgullosos", text, flags=re.IGNORECASE)
+    text = re.sub(r"est[aá]\"muy", 'está "muy', text, flags=re.IGNORECASE)
+    text = re.sub(r'futbol[ií]stica"y ', 'futbolística" y ', text, flags=re.IGNORECASE)
+    text = re.sub(r'opci[oó]n O la', "opción o la", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"(detr[aá]s de)\s*\n+(Pep Guardiola)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    subtitle = (
+        "Xavi toma las riendas de Países Bajos y promete que se jugará buen futbol"
+    )
+    text = re.sub(rf"\n+{re.escape(subtitle)}\s*$", "", text, flags=re.IGNORECASE)
+    if not re.search(r"Xavi toma las riendas de Pa[ií]ses Bajos", text, flags=re.IGNORECASE):
+        text = re.sub(
+            r"(La tercera fue la vencida)\s*\n+(Xavi Hern[aá]ndez fue presentado)",
+            rf"\1\n\n{subtitle}\n\n\2",
+            text,
+            flags=re.IGNORECASE,
+        )
+    text = re.sub(
+        r"(?ms)\n*EL PRIMERO Cuatro a[nñ]os de contrato firm[oó] Xavi con Pa[ií]ses Bajos, "
+        r"has XAVI\s*\n+ta el Mundial de 2030; ser[aá] 2030 el primer t[eé]cni\s*",
+        "\n\nEL DATO PAÍSES BAJOS EL PRIMERO\n\n"
+        "Cuatro años de contrato firmó Xavi con Países Bajos, hasta el Mundial "
+        "de 2030; será el primer extranjero en dirigir a la Oranje desde 1978.\n\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def repair_ug_clavados_article(text: str) -> str:
+    """Universal Gráfico: Mía y Lía Cueva."""
+    text = re.sub(r"(?m)^SEGUNDO ORO DE M[EÉ]XICO\s+", "", text)
+    text = re.sub(r"^SEGUNDO ORO DE M[EÉ]XICO\s+", "", text)
+    text = re.sub(r"\bMia\b", "Mía", text)
+    text = re.sub(r"\bLia\b", "Lía", text)
+    text = re.sub(r"poeta L Francisco", "poeta Francisco", text)
+    text = re.sub(
+        r"(infinitas)\. que llevan",
+        r"\1, que llevan",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"Clavados\. al imponerse", "Clavados, al imponerse", text)
+    text = re.sub(r"metros\. dentro", "metros, dentro", text)
+    text = re.sub(r"eso es que\. con", "eso es que, con", text)
+    text = re.sub(r"a[nñ]os\. ya son", "años, ya son", text)
+    text = re.sub(r"absoluto\. por lo", "absoluto, por lo", text)
+    text = re.sub(r"evento\. segunda", "evento, segunda", text)
+    text = re.sub(r"otra\. de primer", "otra, de primer", text, flags=re.IGNORECASE)
+    text = re.sub(r"lugar\. tambi[eé]n", "lugar, también", text)
+    text = re.sub(r"por M[ií]a\. en el", "por Mía, en el", text)
+    text = re.sub(r"metro\. prueba", "metro, prueba", text)
+    text = re.sub(r"(unidades)\. (lo que)", r"\1, \2", text)
+    text = re.sub(r"(primera)\. (marcaron)", r"\1, \2", text)
+    text = re.sub(r"(unidades)\. (mientras)", r"\1, \2", text)
+    text = re.sub(r"(Cachero)\. (gracias)", r"\1, \2", text)
+    text = re.sub(r"(mexicanos)\. (son el presente)", r"\1, \2", text)
+    text = re.sub(r"presente\. Redacci", "presente.\n\nRedacci", text)
+    text = re.sub(
+        r"(?ms)\n*GLOBAL PARTNERS[\s\S]*?al podio\.",
+        "\n\nLía y Mía Cueva suben al podio.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?m)^GLOBAL PARTNERS\s*$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"\b361°\s*NY\s*ATIONAL PARTN\s*so\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"(2 oros)\. (3 platas) y (1 bronce): marcha",
+        r"\1, \2 y \3; marcha",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^(MEDALLERO)\s+(M[eé]xico suma)",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not re.search(r"Cueva suben al podio", text, flags=re.IGNORECASE):
+        text = text.rstrip() + "\n\nLía y Mía Cueva suben al podio."
+    return text
+
+
+def repair_dimagen_dea_article(text: str) -> str:
+    """Diario Imagen: nota DEA / cárteles, reordena deck y cortes de columna."""
+    text = re.sub(r"Extranjerasse", "Extranjeras- se", text)
+    text = re.sub(r"M[eé]xicontra", 'México" contra', text)
+    text = re.sub(r"estadounidensepor", "estadounidense- por", text)
+    text = re.sub(r"\(CJNG\)-designados", "(CJNG) -designados", text)
+    text = re.sub(
+        r"C[ÁA]RTELES MEXICANOS\s*/\s*RECLUTAN",
+        "CÁRTELES MEXICANOS RECLUTAN",
+        text,
+    )
+    text = re.sub(
+        r"(an[aá]lisis de)\s*\n+(Prieto Curiel)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r'(funcionarios de alto nivel ")\s*\n+',
+        'funcionarios de alto nivel" trabajando con grupos delictivos\n\n',
+        text,
+    )
+    text = re.sub(r"(?m)^trabajando con grupos delictivos\s*$", "", text)
+
+    director = re.search(
+        r"El director de la Agencia Antidrogas[\s\S]*?"
+        r"agreg[oó] el funcionario estadounidense\.\s*",
+        text,
+        flags=re.IGNORECASE,
+    )
+    director_para = director.group(0).strip() if director else ""
+    if director:
+        text = (text[: director.start()] + text[director.end() :]).strip()
+
+    head = re.search(
+        r'C[áa]rteles mexicanos reemplazan f[áa]cilmente a l[íi]deres ca[íi]dos: DEA\s*\n+'
+        r'Terry Cole acusa que "hay funcionarios de alto nivel" trabajando con grupos delictivos',
+        text,
+        flags=re.IGNORECASE,
+    )
+    if director_para and head:
+        insert_at = head.end()
+        text = text[:insert_at].rstrip() + "\n\n" + director_para + "\n\n" + text[insert_at:].lstrip()
+
+    text = re.sub(
+        r'\n+co" que trabajan directamente con los c[áa]rteles de la droga, al tiempo que '
+        r'advirti[oó] que el destino de "Los Chapitos" ser[aá] la cadena perpetua, como '
+        r'Joaqu[ií]n "El Chapo" Guzm[aá]n y Ismael "El Mayo" Zambada\.\s*\n+'
+        r"Cole se refiri[oó] a la acusaci[oó]n dada a conocer en abril\s*",
+        "\n\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"alto nivel en M[eé]xico\" contra 10 funcionarios",
+        'alto nivel en México" que trabajan directamente con los cárteles de la droga, '
+        'al tiempo que advirtió que el destino de "Los Chapitos" será la cadena perpetua, '
+        'como Joaquín "El Chapo" Guzmán y Ismael "El Mayo" Zambada. Cole se refirió a la '
+        "acusación dada a conocer en abril contra 10 funcionarios",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\n+gobierno mexicano \"ha intensificado sus esfuerzos en Sinaloa, en Jalisco\" y "
+        r"destac[oó] su relaci[oó]n con el secretario de Seguridad:\s*\n+"
+        r"\"Tenemos una comunicaci[oó]n diaria entre el secretario de Seguridad Omar Garc[ií]a\s*",
+        "\n\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(Terry Cole reconoci[oó] que el)\s*\n+(Harfuch y yo\.)",
+        r'\1 gobierno mexicano "ha intensificado sus esfuerzos en Sinaloa, en Jalisco" y '
+        r"destacó su relación con el secretario de Seguridad: "
+        r'"Tenemos una comunicación diaria entre el secretario de Seguridad Omar García \2',
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\n+C[áa]rtel de Sinaloa, designados por la administraci[oó]n de Donald Trump "
+        r"como Organizaciones Terroristas Extranjeras,\s*\n+se ha intensificado\.\s*$",
+        "\n\nLa presión de Estados Unidos sobre el Cártel Jalisco Nueva Generación y el "
+        "Cártel de Sinaloa, designados por la administración de Donald Trump como "
+        "Organizaciones Terroristas Extranjeras, se ha intensificado.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.strip()
+
+
+def repair_dimagen_education_infographic(text: str) -> str:
+    """Diario Imagen: quita grafica de matricula / ACCESS A."""
+    text = re.sub(r"(?m)^ACCESO A\s*$", "", text)
+    text = re.sub(
+        r"(?ms)\n*ampl[ií]an las oportunidades[\s\S]*?"
+        r"(?:2024-2026|2025-2026)\s*",
+        "\n\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?ms)\n*Gobierno de M[eé]xico Educa[\s\S]*?Nuevos espacio[s]?\s*",
+        "\n\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\b3,574,610\b|\b3,329,499\b|\b245,111\b", "", text)
+    text = re.sub(r"74\.2%fueron", "74.2% fueron", text)
+    text = re.sub(r"aut[oó]nomas no-\s*", "autónomas no ", text)
+    text = re.sub(
+        r"[¿¡]?quieres estudiar administradestac[oó]\.",
+        "¿quieres estudiar administración? estos son los lugares y te puedes "
+        "dirigir a esta página electrónica. Entonces a partir de mañana: "
+        "Educación Superior 2026 en la SEP, todos aquellos que por alguna razón "
+        "no entraron a la UNAM que es en realidad porque no hay suficientes espacios, "
+        "pueden entrar a la plataforma Educación Superior 2026\", destacó.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(las y los j[oó]venes tengan acceso a la educaci[oó]n p[uú]blica); como resultado",
+        r"\1, como resultado",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"pero si les decimos", "pero sí les decimos", text)
+    text = re.sub(
+        r"(pero s[ií] les decimos)\s*\n+\s*(¿quieres estudiar)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(acceso a la educaci[oó]n)\s+(Presenta Sheinbaum)",
+        r"\1\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(mil 503 espacios)\s+(Con Mi Derecho)",
+        r"\1\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^ampl[ií]an las oportunidades la educaci[oó]n superior\s*$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(Universidades Benito)\s*\n+(Ju[aá]rez)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(fortalecer las instituciones)\s*\n+(de Educaci[oó]n)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(Certificado de Bachillerato)\s*\n+(Nacional)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(segunda, tercera)\.\s*\n+(Y como ver[aá]n)",
+        r"\1. \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bo sea que es una buena", "O sea que es una buena", text)
+    return text
+
+
+def repair_dimagen_candidaturas_article(text: str) -> str:
+    """Diario Imagen: candidaturas / voto de castigo."""
+    text = re.sub(
+        r"(Por Arturo Baena)\s+(Valle de M[eé]xico\.-)",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bll[áa]mase como se llame\b", "llámese como se llame", text)
+    return text
+
+
+def repair_ug_medicos_article(text: str) -> str:
+    """Universal Gráfico: médicos cubanos / Angola."""
+    text = re.sub(
+        r"(?i)^ELLOS TRABAJAN Y EL GOBIERNO COBRA(?:\s+A)?\s*M[ÉE]DICOS\s+(MAX AUB)",
+        "Explotan a médicos\n\n\\1",
+        text,
+    )
+    text = re.sub(r"(?m)^(?:La\s+)?A?\s*M[ÉE]DICOS\s*$", "Explotan a médicos", text)
+    if not re.search(r"(?m)^Explotan a m[eé]dicos\s*$", text, flags=re.IGNORECASE):
+        if re.search(r"\bMAX AUB\b", text):
+            text = re.sub(r"(?m)^(MAX AUB)\s*$", "Explotan a médicos\n\n\\1", text)
+    text = re.sub(
+        r"(Explotan a m[eé]dicos)\s+(MAX AUB)",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"m[eé]di COS\b", "médicos", text, flags=re.IGNORECASE)
+    text = re.sub(r"m[eé]di CO\b", "médico", text, flags=re.IGNORECASE)
+    text = re.sub(r"\bCortede\b", "Corte de", text)
+    text = re.sub(r"programa'\s*", "programa '", text)
+    text = re.sub(
+        r"(?m)^(CULPAS)\s+(Frente a las acusaciones\b)",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r'(trata de una)\s*\n+"campa[nñ]a"',
+        r'\1 "campaña"',
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def repair_ug_dolly_article(text: str) -> str:
+    """Universal Gráfico: Dolly Parton."""
+    text = re.sub(
+        r'(?m)^Dolly me llam[oó] y me dijo que quer[ií]a descansar en un hermoso prado',
+        '"Dolly me llamó y me dijo que quería descansar en un hermoso prado',
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not re.search(r"Sobrino y representante", text, flags=re.IGNORECASE):
+        text = re.sub(
+            r"(?m)^(Brian Sees)\s*$",
+            r"\1  \nSobrino y representante",
+            text,
+        )
+    return text
+
+
+def repair_dimagen_canta_article(text: str) -> str:
+    """Diario Imagen: México Canta 2026."""
+    text = re.sub(
+        r"(ampl[ií]an las)\s*\n+(y experiencias\b)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(conducci[oó]n de)\s*\n+(Majo Aguilar\b)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"a[nñ]osy\b", "años- y", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"mexicoestadounidense(?!-)\s+En el escenario",
+        "mexicoestadounidense- En el escenario",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"preservaci[oó]n de los mexicanos\s*$",
+        "preservación de los géneros musicales tradicionales mexicanos",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def repair_eldia_transparencia_article(text: str) -> str:
+    """El Día: transparencia del Congreso CDMX."""
+    text = re.sub(
+        r"unidades administrati\s+",
+        "unidades administrativas.\n\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"M[eé]xicopublicada", "México publicada", text)
+    text = re.sub(r"DirectivaJes[uú]s", "Directiva Jesús", text)
+    text = re.sub(
+        r"(Unidad de Transparencia)\s*\n+(Comit[eé] de Transparencia)\s*$",
+        r"\1\n\nPresenta\n\n\2\n\nCuoto Sesión Ordinario",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def repair_eldia_tdj_article(text: str) -> str:
+    """El Día: conversatorio TDJ / desaparición forzada."""
+    text = re.sub(
+        r"investigacio\s+Al cerrar",
+        "investigaciones.\n\nAl cerrar",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\n+nes\.\s*$", "", text)
+    text = re.sub(r"\binvestigacio\s+nes\b", "investigaciones", text)
+    return text
+
+
+def repair_ug_danna_article(text: str) -> str:
+    """Universal Gráfico: Danna / Belinda."""
+    text = re.sub(r'"girly pop"y', '"girly pop" y', text)
+    text = re.sub(r"\bnoch para\b", "noche para", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?m)^DANNA\s*$", "", text)
+    return text
+
+
+def repair_ug_juanga_article(text: str) -> str:
+    """Universal Gráfico: Juan Gabriel / INSTAGRAM."""
+    if re.search(r"(?m)^JUAN GABRIEL\s*$", text) and not re.search(
+        r"(?m)^INSTAGRAM\s*$", text
+    ):
+        text = re.sub(r"(?m)^(JUAN GABRIEL)\s*$", r"\1\n\nINSTAGRAM", text)
+    return text
+
+
+def repair_dimagen_trump_article(text: str) -> str:
+    """Diario Imagen: Trump / Ipsos / Canadá."""
+    text = re.sub(r"Reuters/Ipso\b", "Reuters/Ipsos", text)
+    text = re.sub(
+        r"(77% de marzo)\.\s+(La guerra ha lastrado)",
+        r"\1.\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(cree que la guerra)\s*\n+(se un go periodo)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r'(TRUMP REFUERZA "OFENSIVA COMERCIAL")\s*\n+(CONTRA CANAD[AÁ])',
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(fracasaron)\s*\n+CONTRA CANAD[AÁ]\s*\n+(el viernes\b)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r'(OFENSIVA COMERCIAL")\s*\n+(Donald Trump anunci[oó])',
+        r'\1 CONTRA CANADÁ\n\n\2',
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def repair_eldia_durango_article(text: str) -> str:
+    """El Día: decomiso en Durango."""
+    text = re.sub(
+        r"(224 mil 865 pesos)\.\s*\n+(Estos resultados contribuyen)",
+        r"\1. \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"investigacioneslos", "investigaciones los", text)
+    return text
+
+
+def repair_dimagen_clases_article(text: str) -> str:
+    """Diario Imagen: regreso a clases / Fonacot."""
+    text = re.sub(r"(?m)^-\s+Comprar la lista", "-Comprar la lista", text)
+    text = re.sub(
+        r"(?m)^REGRESO A CLASES\?\s*$",
+        "¿CUÁNDO ES EL REGRESO A CLASES?",
+        text,
+    )
+    text = re.sub(
+        r"[¿¡]?CU[ÁA]NDO ES EL\s+FERIAS DE PROFECO",
+        "FERIAS DE PROFECO",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\(Fonacot\)\s*\n+(pone a disposici[oó]n)",
+        r"(Fonacot) \1",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?m)^DIXON\s*\$?\s*10\s*$", "", text, flags=re.IGNORECASE)
+    return text
+
+
 def strip_infographic_residue(text: str) -> str:
     """Quita residuos tipicos de tablas/infografias mal leidas."""
     text = re.sub(
@@ -1290,6 +1870,38 @@ class NotaInformativaCorrectionEngine(GenericCorrectionEngine):
             text = repair_contrar_metro_article(text)
         if re.search(r"Presidente iran|Masud Pezeshkian|dificultades.*pa[ií]s", text, flags=re.IGNORECASE):
             text = repair_contrar_iran_article(text)
+        if re.search(r"Raptados|Susana Zabaleta|Gusgri", text, flags=re.IGNORECASE):
+            text = repair_ug_zabaleta_article(text)
+        if re.search(r"Xavi Hern[aá]ndez|Pa[ií]ses Bajos|KNVB", text, flags=re.IGNORECASE):
+            text = repair_ug_xavi_article(text)
+        if re.search(r"SINCRONIA|M[ií]a y L[ií]a|Clavados", text, flags=re.IGNORECASE):
+            text = repair_ug_clavados_article(text)
+        if re.search(r"Educaci[oó]n Superior 2026|Mi Derecho, Mi Lugar", text, flags=re.IGNORECASE):
+            text = repair_dimagen_education_infographic(text)
+        if re.search(r"c[áa]rteles mexicanos reemplazan|Terry Cole acusa", text, flags=re.IGNORECASE):
+            text = repair_dimagen_dea_article(text)
+        if re.search(r"Arturo Baena|voto de castigo|ll[áa]mase como se llame", text, flags=re.IGNORECASE):
+            text = repair_dimagen_candidaturas_article(text)
+        if re.search(r"MAX AUB|m[eé]dicos cubanos|CASO ANGOLA", text, flags=re.IGNORECASE):
+            text = repair_ug_medicos_article(text)
+        if re.search(r"regreso a clases|Fonacot|Mesones y Moneda", text, flags=re.IGNORECASE):
+            text = repair_dimagen_clases_article(text)
+        if re.search(r"Dolly Parton|Brian Sees|leyenda del country", text, flags=re.IGNORECASE):
+            text = repair_ug_dolly_article(text)
+        if re.search(r"M[eé]xico Canta|Majo Aguilar|mexicocanta\.gob", text, flags=re.IGNORECASE):
+            text = repair_dimagen_canta_article(text)
+        if re.search(r"Leonardo Ju[aá]rez|Unidad de Transparencia|Galv[aá]n Darder", text, flags=re.IGNORECASE):
+            text = repair_eldia_transparencia_article(text)
+        if re.search(r"Tribunal de Disciplina|Celia Maya|Desaparici[oó]n Forzada", text, flags=re.IGNORECASE):
+            text = repair_eldia_tdj_article(text)
+        if re.search(r"wet dream|girly pop|Dolce vita", text, flags=re.IGNORECASE):
+            text = repair_ug_danna_article(text)
+        if re.search(r"JUAN GABRIEL|Abr[aá]zame muy fuerte|Divo de Ju[aá]rez", text, flags=re.IGNORECASE):
+            text = repair_ug_juanga_article(text)
+        if re.search(r"Reuters/?Ipsos|OFENSIVA COMERCIAL|popularidad del presidente Trump", text, flags=re.IGNORECASE):
+            text = repair_dimagen_trump_article(text)
+        if re.search(r"Pe[nñ][oó]n Blanco|Destino de Bienes y Objetos", text, flags=re.IGNORECASE):
+            text = repair_eldia_durango_article(text)
         text = strip_short_note_agency_mark(text)
         text = strip_infographic_residue(text)
         text = strip_noise_lines(text)

@@ -246,14 +246,60 @@ def looks_like_headline(block: TextBlock) -> bool:
     text = block.text.strip()
     if len(text) < 8:
         return False
+    # Continuaciones en minuscula (p. ej. "ta el Mundial") no son titular.
+    if re.match(r"^[a-záéíóúüñ]", text):
+        return False
+    if looks_like_chart_label(text):
+        return False
     if block.font_size >= 14.0:
         return True
     return block.font_size >= 12.0 and len(text.split()) >= 3
 
 
+def looks_like_body_continuation(text: str) -> bool:
+    """Linea de columna partida por foto: 'ese municipio, Raciel Pérez'."""
+    compact = re.sub(r"\s+", " ", text.strip())
+    if len(compact) < 8 or looks_like_chart_label(compact):
+        return False
+    words = compact.split()
+    if compact.endswith("-") and len(words) >= 2:
+        return True
+    if re.match(r"^[a-záéíóúüñ\"“«'(]", compact) and (
+        "," in compact or "-" in compact or len(words) >= 3
+    ):
+        return True
+    # Cierre corto de oracion: "ciudadanía." / "delictivos"
+    if len(words) <= 6 and re.search(r"[.!,;:]$", compact):
+        return True
+    return False
+
+
+def looks_like_chart_label(text: str) -> bool:
+    """Etiquetas/numeros de infografia, no cuerpo de nota."""
+    compact = re.sub(r"\s+", " ", text.strip())
+    if not compact:
+        return False
+    if re.fullmatch(r"[\d.,%\s/\-]+", compact):
+        return True
+    if re.search(r"\b\d{1,3}(?:,\d{3}){2,}\b", compact) and len(compact.split()) <= 8:
+        return True
+    return bool(
+        re.search(
+            r"GLOBAL PARTNERS|WORLD AQUATICS|NATIONAL PARTN|Nuevos espacio|"
+            r"atr[ií]cula p[uú]blica|361°|RIDEK",
+            compact,
+            flags=re.IGNORECASE,
+        )
+    )
+
+
 def looks_like_article_body(text: str) -> bool:
     """Parrafo periodistico real (conservar aunque caiga sobre bbox de foto)."""
     compact = re.sub(r"\s+", " ", text.strip())
+    if looks_like_chart_label(compact):
+        return False
+    if looks_like_body_continuation(compact):
+        return True
     if len(compact) < 35:
         return False
     words = compact.split()
@@ -276,7 +322,12 @@ def looks_like_pull_quote(text: str) -> bool:
 
 def is_masthead_title(block: TextBlock) -> bool:
     """Titular tipografico grande sobre imagen de portada/banner."""
-    return block.font_size >= 28.0 and len(block.text.strip()) >= 3
+    text = block.text.strip()
+    if block.font_size < 28.0 or len(text) < 3:
+        return False
+    if re.match(r"^[a-záéíóúüñ]", text) or looks_like_chart_label(text):
+        return False
+    return True
 
 
 def filter_text_inside_photos(
@@ -298,20 +349,28 @@ def filter_text_inside_photos(
         if text_inside_photograph(block, wide_photos):
             # En recortes con foto grande el texto de la nota suele vivir
             # dentro del bbox: conservar titulares y parrafos reales.
+            if looks_like_chart_label(block.text):
+                continue
             if (
                 is_masthead_title(block)
                 or looks_like_headline(block)
                 or looks_like_article_body(block.text)
+                or looks_like_body_continuation(block.text)
                 or looks_like_pull_quote(block.text)
                 or is_author_byline(block.text, block.font_size)
             ):
                 filtered.append(block)
             continue
 
-        # Miniaturas verticales: omitir overlays/citas, no el cuerpo de timelines.
+        # Miniaturas verticales: omitir overlays/citas, no el cuerpo de columnas.
         if text_inside_photograph(block, portrait_photos, bottom_margin=8.0):
             compact = block.text.strip()
-            if looks_like_graphic_overlay_text(compact) or re.fullmatch(
+            if looks_like_chart_label(compact) or looks_like_graphic_overlay_text(compact):
+                continue
+            if looks_like_body_continuation(compact) or looks_like_article_body(compact):
+                filtered.append(block)
+                continue
+            if re.fullmatch(
                 r"[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+){0,3},?",
                 compact,
             ):
@@ -320,9 +379,7 @@ def filter_text_inside_photos(
             if len(compact) <= 40 and not re.search(r"\d{4}\.", compact):
                 if re.search(r"\s", compact) and not re.search(r"[.!?]$", compact):
                     # p. ej. "ra el poder en las institucio"
-                    if looks_like_graphic_overlay_text(compact) or re.match(
-                        r"^[a-záéíóúüñ]", compact
-                    ):
+                    if re.match(r"^[a-záéíóúüñ]", compact):
                         continue
 
         filtered.append(block)
@@ -371,10 +428,11 @@ def repair_oversized_drop_cap_blocks(blocks: list[TextBlock]) -> list[TextBlock]
                 index = merge_at + 1
             continue
 
-        if block.font_size >= 28 and re.match(r"^a\s+\S", text, flags=re.IGNORECASE):
-            text = re.sub(r"^a\s+", "La ", text, count=1, flags=re.IGNORECASE)
+        if block.font_size >= 28 and re.match(r"^a\s+[a-záéíóúüñ]", text):
+            text = re.sub(r"^a\s+", "La ", text, count=1)
             text = re.sub(r"\s+IL\s*$", "", text)
             text = re.sub(r"\s+I\s*$", "", text)
+            text = re.sub(r"\bpoeta\s+L\s+", "poeta ", text)
             repaired.append(
                 TextBlock(
                     block.x0,
@@ -611,8 +669,11 @@ def sort_blocks_by_columns(blocks: list[TextBlock], page_width: float) -> list[T
     # Creditos de autor salen del flujo de columnas (evita pegarlos al inicio de otra).
     bylines: list[TextBlock] = []
     column_body: list[TextBlock] = []
+    title_band = min((item.y0 for item in titles), default=0.0) + 90.0
     for block in body:
-        if is_author_byline(block.text, block.font_size):
+        # Solo saca creditos cercanos al titular; "Redacción" a media pagina
+        # debe quedarse en su columna (Universal Gráfico / similar).
+        if is_author_byline(block.text, block.font_size) and block.y0 <= title_band:
             bylines.append(block)
         else:
             column_body.append(block)
@@ -769,7 +830,15 @@ def looks_like_upper_author_line(text: str) -> bool:
     if not is_short_upper_line(compact, max_length=40):
         return False
     parts = re.sub(r"[./]", " ", compact).split()
-    return 2 <= len(parts) <= 5
+    if not (2 <= len(parts) <= 4):
+        return False
+    # Titulares de seccion: "ELOGIA A GARCÍA", "CÁRTELES MEXICANOS"...
+    if re.search(
+        r"\b(Y|A|EN|CON|POR|PARA|QUE|UNA|UNOS|AL|EL|LA|LOS|LAS)\b",
+        compact,
+    ):
+        return False
+    return True
 
 
 def is_author_byline(text: str, font_size: float) -> bool:
@@ -790,6 +859,12 @@ def is_author_byline(text: str, font_size: float) -> bool:
     # "- ROBERTO AGUILAR" / "ROBERTO AGUILAR" / "VÍCTOR CHÁVEZ"
     stripped = compact.lstrip("-–— ").strip()
     if is_short_upper_line(stripped, max_length=40) and 2 <= len(stripped.split()) <= 5:
+        return True
+    # Cargo bajo el nombre: "Sobrino y representante"
+    if re.match(
+        r"^[A-ZÁÉÍÓÚÜÑ][a-záéíóúüñ]+(?:\s+y\s+[a-záéíóúüñ]+){1,3}$",
+        compact,
+    ):
         return True
     return bool(
         re.match(
