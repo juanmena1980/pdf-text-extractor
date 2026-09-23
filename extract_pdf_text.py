@@ -286,11 +286,31 @@ def looks_like_chart_label(text: str) -> bool:
     return bool(
         re.search(
             r"GLOBAL PARTNERS|WORLD AQUATICS|NATIONAL PARTN|Nuevos espacio|"
-            r"atr[ií]cula p[uú]blica|361°|RIDEK",
+            r"atr[ií]cula p[uú]blica|361°|RIDEK|"
+            r"TISSOT|ISSOT|beneva|\bBanque\b|\bWH\s+BC\b|\bEMIER\b",
             compact,
             flags=re.IGNORECASE,
         )
     )
+
+
+def looks_like_stats_table_row(text: str) -> bool:
+    """Filas de medallero / estadisticas deportivas sobre foto."""
+    compact = re.sub(r"\s+", " ", text.strip())
+    if not compact or len(compact) > 120:
+        return False
+    if re.search(
+        r"EQUIPO\s+JD|% DE VICTORIAS|POS\s+CICLISTA|T[ÍI]TULOS MUNDIALES|"
+        r"LOS N[ÚU]MEROS DEL",
+        compact,
+        flags=re.IGNORECASE,
+    ):
+        return True
+    numbers = re.findall(r"\d+(?:[.,]\d+)?%?", compact)
+    words = compact.split()
+    if len(numbers) >= 4 and 2 <= len(words) <= 14 and not re.search(r"[.!?]$", compact):
+        return True
+    return bool(re.match(r"^\d{1,2}\s+[A-ZÁÉÍÓÚÜÑ].*\b\d+\b", compact) and len(numbers) >= 2)
 
 
 def looks_like_article_body(text: str) -> bool:
@@ -349,7 +369,14 @@ def filter_text_inside_photos(
         if text_inside_photograph(block, wide_photos):
             # En recortes con foto grande el texto de la nota suele vivir
             # dentro del bbox: conservar titulares y parrafos reales.
-            if looks_like_chart_label(block.text):
+            compact = block.text.strip()
+            if looks_like_chart_label(compact):
+                continue
+            # Sellos / logos: "FGJ", "OCHOA"
+            if re.fullmatch(r"[A-ZÁÉÍÓÚÜÑ]{2,12}", compact):
+                continue
+            if looks_like_stats_table_row(compact):
+                filtered.append(block)
                 continue
             if (
                 is_masthead_title(block)
@@ -358,6 +385,7 @@ def filter_text_inside_photos(
                 or looks_like_body_continuation(block.text)
                 or looks_like_pull_quote(block.text)
                 or is_author_byline(block.text, block.font_size)
+                or is_photo_agency_credit(compact)
             ):
                 filtered.append(block)
             continue
@@ -526,14 +554,22 @@ def extract_text_blocks(page: fitz.Page, header_percent: float, footer_percent: 
         text = clean_paragraph(block_text_from_dict(block))
         if re.fullmatch(r"(pagina|página|page)\s+\d+", text, flags=re.IGNORECASE):
             continue
-        # Omite URLs sueltas; conserva emails y handles de credito de autor.
+        # Omite URLs sueltas; conserva emails de autor y pies Foto@handle.
         if text.lower().startswith("www."):
             continue
-        if "@" in text and not re.fullmatch(
-            r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}",
-            text.strip(),
-        ) and not re.fullmatch(r"@[A-Za-z0-9_]+", text.strip()):
-            continue
+        if "@" in text:
+            has_email = bool(
+                re.search(
+                    r"[A-Za-z0-9._%+\-]+@[A-Za-z0-9.\-]+\.[A-Za-z]{2,}",
+                    text,
+                )
+            )
+            has_handle = bool(re.fullmatch(r"@[A-Za-z0-9_]+", text.strip()))
+            has_photo_handle = bool(
+                re.search(r"\bFotos?\s*@\w+", text, flags=re.IGNORECASE)
+            )
+            if not has_email and not has_handle and not has_photo_handle:
+                continue
         if is_efinfo_banner(text):
             continue
         if text:
@@ -821,6 +857,7 @@ def is_photo_agency_credit(text: str) -> bool:
             flags=re.IGNORECASE,
         )
         or re.match(r"^BANCO DEL BIENESTAR\.", compact, flags=re.IGNORECASE)
+        or re.match(r"^FOTOS?\s*:", compact, flags=re.IGNORECASE)
     )
 
 

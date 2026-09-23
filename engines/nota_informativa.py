@@ -235,6 +235,11 @@ NOISE_LINE = re.compile(
     r"En la semifinal de Estados Unidos|"
     r"ACCESO A\s*$|"
     r"ACCESO A\s+educa|"
+    r"El Sol de M[eé]xico|"
+    r"^FGJ$|"
+    r"FISCAL[IÍ]A GENERAL DE|"
+    r"JUSTICIA DEL ESTADO|"
+    r"DE TAMAULIPAS|"
     r"o-spor|"
     r"nestar\s+ns\s+Muje\s+Bi\s+tos\s+or|"
     r".*\bcm2\b.*P[aá]gina:.*)$",
@@ -316,6 +321,19 @@ def repair_nota_drop_caps(text: str) -> str:
         flags=re.IGNORECASE,
     )
     text = re.sub(r"\bSUS\b", "sus", text)
+    text = re.sub(
+        r"(?m)^a (experiencia de Javier Aguirre\b)",
+        r"La \1",
+        text,
+    )
+    text = re.sub(
+        r"(?m)^n la segunda temporada de la\s*F?\s*\n+serie",
+        "En la segunda temporada de la serie",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?m)^sí como (Tadej\b)", r"Así como \1", text)
+    text = re.sub(r"ciclis-?\s*A\s+ta\b", "ciclista", text, flags=re.IGNORECASE)
     # Contralínea: capitulares con letra residual al final
     text = re.sub(
         r"(?m)^as (autoridades\b.*?)\s+L\s*$",
@@ -523,14 +541,35 @@ def join_split_masthead_title(text: str) -> str:
         text,
         flags=re.IGNORECASE,
     )
+    text = re.sub(
+        r"¡Y OLE!\s+(VOLVER[AÁ] CON EL VALENCIA)\s+(POR MIGUEL [AÁ]NGEL M[UÚ]JICA)\s+(SEIS ESCUADRAS IB[EÉ]RICAS HAN VISTO EL TRABAJO POSITIVO DEL VASCO JAVIER AGUIRRE)",
+        r"\1\n\n¡Y OLE!\n\n\2\n\n\3",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(El amo de la contrarreloj)\s+(EVENEPOEL, A LA PAR DE TONY MARTIN Y FABIAN CANCELLARA)\s+(POR JORGE BRIONES)",
+        r"\2\n\n\1\n\n\3",
+        text,
+        flags=re.IGNORECASE,
+    )
     return text
 
 
 def repair_hyphen_line_breaks(text: str) -> str:
     # Soft hyphen unicode
     text = text.replace("\u00ad", "")
-    # Une cortes silabicos residuales: "necesi-\ndad" / "UNI- VERSAL"
-    text = re.sub(r"(\w)-\s+(\w)", r"\1\2", text)
+
+    def join_hyphen(match: re.Match[str]) -> str:
+        left, right = match.group(1), match.group(2)
+        if left.isupper() and len(left) >= 3:
+            return f"{left}- {right}"
+        if right.isupper() and len(right) <= 4:
+            right = right.lower()
+        return left + right
+
+    # Une cortes silabicos residuales: "necesi-\ndad" / "estu- VO"
+    text = re.sub(r"(\w)-\s+(\w+)", join_hyphen, text)
     return text
 
 
@@ -561,6 +600,8 @@ def repair_common_spacing(text: str) -> str:
     # "y," pegado tras verbo: "inició, a" no; pero "ya la" ya cubierto
     text = re.sub(r"\b([a-záéíóúüñ])Y\b", r"\1 y", text)
     text = re.sub(r"\bO ([a-záéíóúüñ])", r"o \1", text)
+    text = re.sub(r'",\s*1 record', '", record', text)
+    text = re.sub(r"ROBERTO MANCINI\s*/\s*DT ITALIA", "ROBERTO MANCINI\nDT ITALIA", text)
     text = re.sub(r" {2,}", " ", text)
     return text
 
@@ -621,6 +662,18 @@ def join_orphaned_years(text: str) -> str:
         r"(?m)([a-záéíóúüñ])\s*\n+(20\d{2})\b",
         r"\1 \2",
         text,
+    )
+    text = re.sub(
+        r"(minuto)\s*\n+(\d{1,2}\.)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(anotaci[oó]n al)\s*\n+(\d{1,2}\.)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
     )
     return text
 
@@ -1751,6 +1804,400 @@ def repair_dimagen_clases_article(text: str) -> str:
     return text
 
 
+def repair_esto_aguirre_article(text: str) -> str:
+    """Esto: Javier Aguirre / Valencia; une infografia de numeros."""
+    text = re.sub(r"\bAguire\b", "Aguirre", text)
+    text = re.sub(r"dormido\.\*", "dormido.", text)
+    text = re.sub(
+        r"(de la quema\.)\s+(Javier lo hizo)",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    table = (
+        "23 DE SEPTIEMBRE ES ESPERADO JAVIER AGUIRRE POR SU NUEVO EQUIPO VALENCIA\n\n"
+        "LOS NÚMEROS DEL VASCO EN ESPAÑA\n\n"
+        "EQUIPO JD JG JE JP % DE VICTORIAS\n\n"
+        "Osasuna 177 66 49 62 46.52%\n\n"
+        "Atlético de Madrid 131 61 31 39 54.45%\n\n"
+        "Real Zaragoza 45 13 10 22 36.2%\n\n"
+        "Espanyol 69 22 18 29 40.58%\n\n"
+        "Leganés 30 9 11 10 42.22%\n\n"
+        "Mallorca 97 34 28 35 44.67%\n\n"
+        "Su incursión en el futbol español ocurrió en el 2002 y su labor es reconocida."
+    )
+    text = re.sub(
+        r"(?ms)(?:\*?23 DE SEPTIEMBRE[\s\S]*?)?LOS N[ÚU]MEROS DEL VASCO[\s\S]*?"
+        r"labor es reconocida\.",
+        table,
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def repair_esto_evenepoel_article(text: str) -> str:
+    """Esto: Evenepoel contrarreloj; quita reloj TISSOT y une tabla."""
+    text = re.sub(r"(?m)^Así como (Tadej\b)", r"sí como \1", text)
+    text = re.sub(r"ciclisA\s*\n*ta\b", "ciclista", text)
+    text = re.sub(r"(Rohan)\s*\n+(Denis\b)", r"\1 \2", text)
+    ranking = (
+        "CICLISTAS CON MÁS TÍTULOS MUNDIALES DE CONTRARRELOJ\n\n"
+        "POS CICLISTA PAÍS TÍTULOS\n"
+        "1 Fabian Cancellara Suiza 4 (2006, 2007, 2009 y 2010)\n"
+        "2 Tony Martin Alemania 4 (2011, 2012, 2013 y 2016)\n"
+        "3 Remco Evenepoel Bélgica 4 (2023, 2024, 2025 y 2026)\n"
+        "4 Michael Rogers Australia 3 (2003, 2004 y 2005)\n"
+        "5 Jan Ullrich Alemania 2 (1999 y 2001)\n"
+        "6 Rohan Dennis Australia 2 (2018 y 2019)\n"
+        "7 Filippo Ganna Italia 2 (2020 y 2021)"
+    )
+    text = re.sub(
+        r"(?ms)CICLISTAS CON M[AÁ]S T[IÍ]TULOS MUNDIALES[\s\S]*?"
+        r"7 Filippo Ganna Italia 2 \(2020 y 2021\)",
+        ranking,
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"Remco Evenepoel vol[oó] por las calles canadienses[\s\S]*?(?=CICLISTAS CON|El ciclista belga refrend|\Z)",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?:SH Banque\s+)?tuvo rival que le hiciera sombra[\s\S]*?carrera\.",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?m)^(?:00\s+)?ISSOT.*$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?m)^(?:BC\s+)?beneva.*$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?m)^antini.*$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?m)^SH Banque.*$", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?m)^roval\s*$", "", text, flags=re.IGNORECASE)
+    refrendo = "El ciclista belga refrendó su campeonato, una vez más, en el Mundial."
+    volo = (
+        "Remco Evenepoel voló por las calles canadienses y no tuvo rival "
+        "que le hiciera sombra y se alzó con otro título más en su carrera."
+    )
+    text = re.sub(
+        r"Remco Evenepoel vol[oó] por las calles canadienses[^\n]*\.?",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(El ciclista belga refrend[oó] su campeonato, una vez m[aá]s, en el Mundial\.\s*)+",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\n{3,}", "\n\n", text)
+    return text.rstrip() + "\n\n" + refrendo + "\n\n" + volo
+
+
+def repair_esto_azules_article(text: str) -> str:
+    """Esto: serie Las azules."""
+    text = re.sub(r"(?m)^El Sol de M[eé]xico\s*$", "", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"(En la segunda temporada de la)\s*F\s*\n+serie",
+        r"\1 serie",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^n la segunda temporada de la\s*F?\s*\n+serie",
+        "En la segunda temporada de la serie",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"efecto domique", "efecto dominó que", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"lo a\s+deramente",
+        "lo hagan. Él empieza a convertirse verdaderamente",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(su mentor)\s*\n+(Octavio Romand[ií]a)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r'(?m)^"?\s*DIRECTOR\s*$', "", text)
+    return text
+
+
+def repair_esto_ortiz_article(text: str) -> str:
+    """Esto: Alfonso Ortiz / marcha."""
+    text = re.sub(r"detectar aquellos", "detectar a aquellos", text)
+    text = re.sub(
+        r"La disciplina de la tiene asombrado a su que le ve un exitoso\.",
+        "La disciplina de la marchista mexicana tiene asombrado a su entrenador que le ve un futuro exitoso.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    if not re.search(r"FOTO:\s*ALE", text, flags=re.IGNORECASE):
+        if re.search(r"ALFONSO ORTIZ ENTRENADOR", text, flags=re.IGNORECASE):
+            text = text.rstrip() + "\n\nFOTO: ALE ALE.ORTEGASOLIS"
+    text = re.sub(r"(?m)^FOTO:\s*$", "", text)
+    text = re.sub(r"FOTO:\s*ALE\s+ALE\.ORTEGASOLIS", "FOTO: ALE ALE.ORTEGASOLIS", text)
+    return text
+
+
+def repair_esto_infantino_article(text: str) -> str:
+    """Esto: Infantino / FIFA gobernanza."""
+    text = re.sub(
+        r"Apertura al di[aá]logo\s+ASEGURA QUE LA FIFA NUNCA ESTUVO EN VENTA AGENCIAS "
+        r"INFANTINO PROPONE CONSULTAR A LAS FEDERACIONES PARA REFORMAR LA GOBERNANZA",
+        "ASEGURA QUE LA FIFA NUNCA ESTUVO EN VENTA\n\nApertura al diálogo\n\n"
+        "AGENCIAS\n\nINFANTINO PROPONE CONSULTAR A LAS FEDERACIONES PARA REFORMAR LA GOBERNANZA",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"[UÚ]rich, Suiza\. El presidente de FIFA, Z\s*\n+Gianni Infantino",
+        "Zúrich, Suiza. El presidente de FIFA, Gianni Infantino",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(por escrito)\.\s*\n+(\"En mis conversaciones)",
+        r"\1. \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"GIANNI INFANTINO\s*/\s*PRESIDENTE FIFA",
+        "GIANNI INFANTINO PRESIDENTE FIFA",
+        text,
+    )
+    if text.count("GIANNI INFANTINO PRESIDENTE FIFA") < 2:
+        text = re.sub(
+            r"(cualquier asunto concreto\"\s*)",
+            r"\1\n\nGIANNI INFANTINO PRESIDENTE FIFA\n\n",
+            text,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    return text
+
+
+def repair_esto_xhaka_article(text: str) -> str:
+    """Esto: Granit Xhaka certificado Covid."""
+    text = re.sub(
+        r"(?m)^Xhaka falsifica un\s*$",
+        "Xhaka falsifica un certificado Covid",
+        text,
+    )
+    text = re.sub(
+        r"(Xhaka falsifica un certificado Covid)\s+(Ginebra,)",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?m)^certificado Covid\s*$", "", text)
+    text = re.sub(r"GRANIT XHAKA\s*/\s*VOLANTE SUIZA", "GRANIT XHAKA VOLANTE SUIZA", text)
+    text = re.sub(r"(?m)^E capit[aá]n fue apartado", "El capitán fue apartado", text)
+    text = re.sub(r"(?m)^FOTO:\s*$", "", text)
+    text = re.sub(
+        r"(tres d[ií]as despu[eé]s)\.\s*\n+(Posteriormente,)",
+        r"\1. \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def repair_esto_depay_article(text: str) -> str:
+    """Esto: Memphis Depay / Países Bajos."""
+    text = re.sub(r"\s*/\s*EFE\b", "", text, flags=re.IGNORECASE)
+    text = re.sub(r"(?m)^AFP FOTO:\s*$", "", text, flags=re.IGNORECASE)
+    return text
+
+
+def repair_esto_nfl_murray_article(text: str) -> str:
+    """Esto: Kyler Murray / NFL."""
+    text = re.sub(
+        r"(varias semanas, por)\s*\n+(lo que ser[aá] el veterano)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(un arranque de 0-2)\.\s*\n+(El equipo comandado)",
+        r"\1. \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"\.\s*/\s*JOS[EÉ] A\.\s*RUEDA",
+        ".\n\nJOSÉ A. RUEDA",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def repair_jornada_segato_article(text: str) -> str:
+    """La Jornada: Rita Segato."""
+    text = re.sub(
+        r"(ayer, en el)\s*\n+(Tecnol[oó]gico de Monterrey)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(en espa[nñ]ol)\s*\n+(se traduce como)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(g[eé]nero), refiri[oó]",
+        r'\1", refirió',
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(Sobre la pedagog[ií]a de la crueldad)\s+(Otro tema)",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(Tenemos)\s*\n+(que romper)", r"\1 \2", text)
+    text = re.sub(r'(?m)^"\s*$', "", text)
+    return text
+
+
+def repair_jornada_tigres_article(text: str) -> str:
+    """La Jornada: Tigres femenil / Toluca."""
+    text = re.sub(r"Mar[\s\-]+t[ií]nez", "Martínez", text)
+    text = re.sub(
+        r"(va del torneo)\.\s+(El cuadro regiomontano)",
+        r"\1.\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(con la victoria)\.\s*\n+(Las dirigidas por Nicol[aá]s Morales)",
+        r"\1. \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
+def repair_jornada_lucas_article(text: str) -> str:
+    """La Jornada: museo George Lucas."""
+    text = re.sub(r'(pueblo")y un', r'\1 y un', text)
+    text = re.sub(r"\bestu\s+VO\b", "estuvo", text)
+    text = re.sub(r"\bestuVO\b", "estuvo", text)
+    text = re.sub(r"(arquitecto Ma)\s*\n+(Yansong)", r"\1 \2", text)
+    text = re.sub(r"pocosretratos", "pocos retratos", text)
+    text = re.sub(r"Foto@", "Foto @", text)
+    text = re.sub(
+        r"(?m)^Guillermo del Toro \(derecha\)",
+        "A Guillermo del Toro (derecha)",
+        text,
+    )
+    caption = (
+        "A Guillermo del Toro (derecha) estuvo en primera fila celebrando con "
+        "Lucas la apertura del recinto. Foto @sw_holocron"
+    )
+    text = re.sub(re.escape(caption) + r"\s*", "", text)
+    if "Con información de Ap" in text:
+        text = re.sub(
+            r"(Con informaci[oó]n de Ap)\s*",
+            r"\1\n\n" + caption + "\n\n",
+            text,
+            count=1,
+            flags=re.IGNORECASE,
+        )
+    return text
+
+
+def repair_cronica_bylines_and_cuts(text: str) -> str:
+    """La Crónica: bylines con email y cortes de columna."""
+    text = re.sub(r"EidalidL[oó]pez", "Eidalid López", text)
+    text = re.sub(
+        r"(Eidalid L[oó]pez)\s+(nacional@cronica\.com\.mx)",
+        r"\1 \2",
+        text,
+    )
+    text = re.sub(
+        r"(F[aá]tima Ch[aá]vez)\s+nacional@cronica\.com\.mx",
+        r"\1\n\nnacional@cronica.com.mx",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(Ricardo)\s*\n+(Azael)", r"\1 \2", text)
+    text = re.sub(r"Aguascalientes\.duus", "Aguascalientes.", text)
+    text = re.sub(
+        r"(poblaci[oó]n)\s*\n+(en Aguascalientes\.)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(SECRETAR[IÍ]A DE SALUD RESPONDE)\s+(La Secretar[ií]a de Salud)",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(beneficiarios de)\s*\n+(la Beca Universal)",
+        r"\1 \2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?ms)\n*FGJ\s*FISCAL[IÍ]A GENERAL[\s\S]*?TAMAULIPAS\s*",
+        "\n\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(?m)^FISCAL[IÍ]A GENERAL DE JUSTICIA DEL ESTADO DE TAMAULIPAS\s*$",
+        "",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"\bsilenci[oó]n\b", "silencios", text, flags=re.IGNORECASE)
+    text = re.sub(
+        r"(Eidalid L[oó]pez) nacional@cronica\.com\.mx(\s+La creaci[oó]n de este espacio)",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(nacional@cronica\.com\.mx)\s+(Ruvalcaba inform[oó])",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(en el estado\.)\s+(Durante el encuentro,)",
+        r"\1\n\n\2",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(programas relacionados con el sector)\s*$",
+        r"\1.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(
+        r"(sectores de la poblaci[oó]n)\s*$",
+        r"\1 en Aguascalientes.",
+        text,
+        flags=re.IGNORECASE,
+    )
+    return text
+
+
 def strip_infographic_residue(text: str) -> str:
     """Quita residuos tipicos de tablas/infografias mal leidas."""
     text = re.sub(
@@ -1781,6 +2228,15 @@ def strip_infographic_residue(text: str) -> str:
         "",
         text,
     )
+    text = re.sub(
+        r"(?ms)\n*FGJ(?:\s+FISCAL[IÍ]A GENERAL[\s\S]*?TAMAULIPAS)?\s*",
+        "\n\n",
+        text,
+        flags=re.IGNORECASE,
+    )
+    text = re.sub(r"(?m)^(?:BC\s+)?(?:beneva|TISSOT|ISSOT|enev|antini|EMIER)\b.*$", "", text)
+    text = re.sub(r"Aguascalientes\.duus", "Aguascalientes.", text)
+    text = re.sub(r"Foto@", "Foto @", text)
     return text.strip()
 
 
@@ -1902,6 +2358,47 @@ class NotaInformativaCorrectionEngine(GenericCorrectionEngine):
             text = repair_dimagen_trump_article(text)
         if re.search(r"Pe[nñ][oó]n Blanco|Destino de Bienes y Objetos", text, flags=re.IGNORECASE):
             text = repair_eldia_durango_article(text)
+        if re.search(r"Javier Aguirre|Vasco Aguirre|VOLVER[AÁ] CON EL VALENCIA", text, flags=re.IGNORECASE):
+            text = repair_esto_aguirre_article(text)
+        if re.search(r"Evenepoel|contrarrelojista|Fabian Cancellara", text, flags=re.IGNORECASE):
+            text = repair_esto_evenepoel_article(text)
+        if re.search(r"Las azules|Fernando Rovzar|Tlatelolco", text, flags=re.IGNORECASE):
+            text = repair_esto_azules_article(text)
+        if re.search(r"Alfonso Ortiz|Alejandra Ortega|marchista mexicana", text, flags=re.IGNORECASE):
+            text = repair_esto_ortiz_article(text)
+        if re.search(r"Infantino|FIFA Forward Enterprise|Apertura al di[aá]logo", text, flags=re.IGNORECASE):
+            text = repair_esto_infantino_article(text)
+        if re.search(r"Granit Xhaka|certificado Covid", text, flags=re.IGNORECASE):
+            text = repair_esto_xhaka_article(text)
+        if re.search(r"Memphis Depay|Selecci[oó]n Neerlandesa", text, flags=re.IGNORECASE):
+            text = repair_esto_depay_article(text)
+        if re.search(r"Kyler Murray|Marcus Mariota|Minnesota Vikings", text, flags=re.IGNORECASE):
+            text = repair_esto_nfl_murray_article(text)
+        if re.search(r"Rita Segato|Contrapedagog[ií]as de la crueldad", text, flags=re.IGNORECASE):
+            text = repair_jornada_segato_article(text)
+        if re.search(r"Kgatlana|Valeria Mart|Amazonas", text, flags=re.IGNORECASE):
+            text = repair_jornada_tigres_article(text)
+        if re.search(r"Museo de Arte Narrativo|George Lucas|Ma Yansong", text, flags=re.IGNORECASE):
+            text = repair_jornada_lucas_article(text)
+        if re.search(
+            r"cronica\.com\.mx|Nora Ruvalcaba|Casa Casve|Hospital General de Zona|Santiago Nieto",
+            text,
+            flags=re.IGNORECASE,
+        ):
+            text = repair_cronica_bylines_and_cuts(text)
+        if re.search(r"SA[UÚ]L MALDONADO|enfermedad de Parkinson|UJED", text, flags=re.IGNORECASE):
+            text = re.sub(
+                r"(SA[UÚ]L MALDONADO)\s+CORRESPONSAL\s+(DURANGO, DGO\.)",
+                r"\1\n\n\2",
+                text,
+                flags=re.IGNORECASE,
+            )
+            text = re.sub(
+                r"(Publicaci[oó]n en revista especializada)\s+(El trabajo de la universidad)",
+                r"\1\n\n\2",
+                text,
+                flags=re.IGNORECASE,
+            )
         text = strip_short_note_agency_mark(text)
         text = strip_infographic_residue(text)
         text = strip_noise_lines(text)

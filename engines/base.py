@@ -35,7 +35,14 @@ def clean_paragraph(text: str) -> str:
 
     paragraph = re.sub(r"\s+([,.;:!?])", r"\1", paragraph)
     paragraph = re.sub(r"([,;:])(?=\S)", r"\1 ", paragraph)
-    paragraph = re.sub(r"(\w)-\s+([a-záéíóúüñ])", r"\1\2", paragraph)
+
+    def join_hyphen_in_para(match: re.Match[str]) -> str:
+        left, right = match.group(1), match.group(2)
+        if left.isupper() and len(left) >= 3:
+            return f"{left}- {right}"
+        return left + right
+
+    paragraph = re.sub(r"(\w)-\s+([a-záéíóúüñ])", join_hyphen_in_para, paragraph)
     paragraph = re.sub(r"([¿¡])\s+", r"\1", paragraph)
     paragraph = re.sub(r"\s+([•*-]\s+)", r"\n\n\1", paragraph)
     paragraph = re.sub(r"\s+(\d+\.\s+)", r"\n\n\1", paragraph)
@@ -71,10 +78,12 @@ def is_short_upper_line(text: str, max_length: int = 80) -> bool:
 def repair_missing_drop_capital(text: str) -> str:
     repairs = (
         (r"^n\s+([A-ZÁÉÍÓÚÜÑ])", r"En \1"),
+        (r"^n\s+([a-záéíóúüñ])", r"En \1"),
         (r"^l\s+([a-záéíóúüñ])", r"El \1"),
         (r"^a\s+([a-záéíóúüñ])", r"La \1"),
         (r"^os\s+([a-záéíóúüñ])", r"Los \1"),
         (r"^as\s+([a-záéíóúüñ])", r"Las \1"),
+        (r"^sí como\b", "Así como"),
     )
     for pattern, replacement in repairs:
         repaired = re.sub(pattern, replacement, text, count=1)
@@ -244,6 +253,22 @@ def split_glued_spanish_words(text: str) -> str:
         (r"investigacio\s+nes\b", "investigaciones"),
         (r"Reuters/Ipso\b", "Reuters/Ipsos"),
         (r'"y sonidos', '" y sonidos'),
+        (r'(?<=\w)(["”])([a-záéíóúüñ])', r"\1 \2"),
+        (r"(?<=[A-Za-zÁÉÍÓÚÜÑáéíóúüñ]) 0 (?=[a-záéíóúüñ])", " o "),
+        (r"\bAguire\b", "Aguirre"),
+        (r"pocosretratos", "pocos retratos"),
+        (r"EidalidL[oó]pez", "Eidalid López"),
+        (r"estuVO\b", "estuvo"),
+        (r"\bestu VO\b", "estuvo"),
+        (r"ciclisA\s*ta", "ciclista"),
+        (r"domique", "dominó que"),
+        (r"\brencontr[oó]\b", "reencontró"),
+        (r"estadunidense", "estadounidense"),
+        (r"SIMSAen", "SIMSA- en"),
+        (r"Mar[\s\-]+t[ií]nez", "Martínez"),
+        (r"ahíy", "ahí y"),
+        (r"Visma Lease a Bike", "Visma-Lease a Bike"),
+        (r"(\d+):\s+(\d{2}\.\d+)", r"\1:\2"),
         (r"\bnoch para\b", "noche para"),
     ):
         text = re.sub(pattern, repl, text)
