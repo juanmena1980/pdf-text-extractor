@@ -10,6 +10,7 @@ from engines.base import (
     split_glued_spanish_words,
     split_glued_uppercase_words,
 )
+from engines.prensa_razon import repair_la_prensa_razon_set
 from engines.registry import register_engine
 
 # Artefactos tipicos de notas informativas / reportes periodisticos cortos.
@@ -205,6 +206,18 @@ NOTA_INFORMATIVA_REPLACEMENTS: dict[str, str] = {
     "acce SOS": "acceso SOS",
     "acce- SOS": "acceso SOS",
     "acce-\nSOS": "acceso SOS",
+    "anteel": "ante el",
+    "lassiglas": "las siglas",
+    "cincoempates": "cinco empates",
+    "cuandojuega": "cuando juega",
+    "empatesy": "empates y",
+    "Eldomingo": "El domingo",
+    "vinculadas.a": "vinculadas a",
+    "al parecr": "al parecer",
+    "Co Di": "CoDi",
+    "fevinculados": "fe vinculados",
+    "ysólido": "y sólido",
+    "Farah Justiniani": "Farrah Justiniani",
 }
 
 
@@ -313,6 +326,43 @@ def repair_nota_drop_caps(text: str) -> str:
     )
     text = re.sub(r"\bUBaja\b", "Baja", text)
     text = re.sub(r"\bgrabacon\b", "grabación", text, flags=re.IGNORECASE)
+    # La Razón / La Prensa: capitulares El/La/LEGO y cortes de columna.
+    text = re.sub(
+        r"(?m)^1\s+(Gobierno federal ha simplifie)\s*(?:\n+\s*)?(cado\b)",
+        r"Gobierno federal ha simplificado",
+        text,
+    )
+    text = re.sub(
+        r"(?m)^EGO anunció una inversión\s+L\s*\n+\s*(de\s+400)",
+        r"LEGO anunció una inversión \1",
+        text,
+    )
+    text = re.sub(
+        r"(?m)^a Liga MX se mantiene activa\s+L\s*\n+\s*(pese\b)",
+        r"La Liga MX se mantiene activa \1",
+        text,
+    )
+    text = re.sub(
+        r"(?m)^partido guinda abrió un nuevo\s+E\s*\n+\s*(capítulo\b)",
+        r"partido guinda abrió un nuevo \1",
+        text,
+    )
+    text = re.sub(
+        r"(?m)^gobierno de Ecuador informó\s+E\s*\n+\s*(que\b)",
+        r"El gobierno de Ecuador informó \1",
+        text,
+    )
+    text = re.sub(
+        r"(?m)^gobernador de Yucatán, Joaquín E\s*\n+\s*(Díaz Mena)",
+        r"El gobernador de Yucatán, Joaquín E \1",
+        text,
+    )
+    text = re.sub(
+        r"(?m)^ras la ola de ejecuciones regist\s*\n+\s*(tradas\b)",
+        r"Tras la ola de ejecuciones registradas",
+        text,
+        flags=re.IGNORECASE,
+    )
     # Fragmento huerfano por corte de columna
     text = re.sub(
         r"(?m)^ci[oó]n tras la revocaci[oó]n de la visa",
@@ -603,6 +653,14 @@ def repair_common_spacing(text: str) -> str:
     text = re.sub(r'",\s*1 record', '", record', text)
     text = re.sub(r"ROBERTO MANCINI\s*/\s*DT ITALIA", "ROBERTO MANCINI\nDT ITALIA", text)
     text = re.sub(r" {2,}", " ", text)
+    text = re.sub(r"(\d):\s+(\d{2})\b", r"\1:\2", text)
+    text = re.sub(r"\bde(?=\d+\.\d+)", "de ", text)
+    text = re.sub(r"\(FGJ\s*\n+\s*EM\)", "(FGJEM)", text)
+    text = re.sub(r"México \(\s*\n*EM\)", "México (FGJEM)", text)
+    text = re.sub(r"\bla\s*\n+EM\b", "la FGJEM", text)
+    text = re.sub(r"\bde la\s*\n+EM\b", "de la FGJEM", text)
+    text = re.sub(r"\blas instalaciones de la\s*\n+EM\b", "las instalaciones de la FGJEM", text)
+    text = re.sub(r"TRABAJO COORDINADO CON LA EM", "TRABAJO COORDINADO CON LA FGJEM", text)
     return text
 
 
@@ -2229,7 +2287,7 @@ def strip_infographic_residue(text: str) -> str:
         text,
     )
     text = re.sub(
-        r"(?ms)\n*FGJ(?:\s+FISCAL[IÍ]A GENERAL[\s\S]*?TAMAULIPAS)?\s*",
+        r"(?ms)\n*FGJ(?!EM)(?:\s+FISCAL[IÍ]A GENERAL[\s\S]*?TAMAULIPAS)?\s*",
         "\n\n",
         text,
         flags=re.IGNORECASE,
@@ -2399,6 +2457,7 @@ class NotaInformativaCorrectionEngine(GenericCorrectionEngine):
                 text,
                 flags=re.IGNORECASE,
             )
+        text = repair_la_prensa_razon_set(text)
         text = strip_short_note_agency_mark(text)
         text = strip_infographic_residue(text)
         text = strip_noise_lines(text)

@@ -34,7 +34,10 @@ def clean_paragraph(text: str) -> str:
             paragraph += " " + line
 
     paragraph = re.sub(r"\s+([,.;:!?])", r"\1", paragraph)
-    paragraph = re.sub(r"([,;:])(?=\S)", r"\1 ", paragraph)
+    paragraph = re.sub(r"([,;])(?=\S)", r"\1 ", paragraph)
+    # No romper horas tipo 23:15 / 16:50.
+    paragraph = re.sub(r":(?=[^\s\d])", ": ", paragraph)
+    paragraph = re.sub(r"(\d):\s+(\d{2})\b", r"\1:\2", paragraph)
 
     def join_hyphen_in_para(match: re.Match[str]) -> str:
         left, right = match.group(1), match.group(2)
