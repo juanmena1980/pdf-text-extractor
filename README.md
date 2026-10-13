@@ -108,3 +108,18 @@ python .\evaluate_training_set.py `
 
 Genera `summary.md`, `summary.csv`, `summary.json` y una carpeta por caso con
 el texto actual, el expected copiado y un `diff.txt`.
+
+## Mesa de síntesis
+
+Herramienta aparte para armar la síntesis del día (jerarquía, grupos y descarte)
+y enviarla por Gmail cuando se marca como revisada. No sustituye al extractor de PDF.
+
+```powershell
+python -m pip install -r requirements-sintesis.txt
+.\IniciarSintesis.bat
+```
+
+Abre `http://127.0.0.1:8770`. La conexión a Gmail se hace una sola vez desde
+Cuentas y clientes; el personal de la mesa no entra a Gmail. Si la síntesis se
+revisa antes de la hora, el correo sale 10 minutos antes. Si ya es hora, sale
+en ese momento. El programador solo envía mientras la mesa sigue abierta.

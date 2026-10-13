@@ -1,0 +1,96 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Mesa de síntesis</title>
+    <link rel="stylesheet" href="/static/styles.css">
+  </head>
+  <body>
+    <header class="masthead">
+      <div>
+        <p class="eyebrow">Monitoreo de medios</p>
+        <h1>Mesa de síntesis</h1>
+      </div>
+      <p id="statusLine">Cargando</p>
+    </header>
+
+    <nav class="tabs" aria-label="Secciones">
+      <button type="button" data-tab="desk" class="active">Síntesis</button>
+      <button type="button" data-tab="notes">Notas</button>
+      <button type="button" data-tab="sends">Envíos</button>
+      <button type="button" data-tab="config">Cuentas y clientes</button>
+    </nav>
+
+    <main>
+      <section id="view-desk" aria-live="polite">
+        <p class="loading">Cargando la mesa…</p>
+      </section>
+
+      <section id="view-notes" hidden>
+        <div class="notes-layout">
+          <form id="noteForm" class="panel">
+            <h2 id="noteFormTitle">Nueva nota</h2>
+            <label>Fecha <input id="noteDate" type="date" required></label>
+            <label>Medio
+              <select id="noteMedium">
+                <option value="prensa">Prensa</option>
+                <option value="radio">Radio</option>
+                <option value="tv">TV</option>
+                <option value="portal">Portal</option>
+              </select>
+            </label>
+            <label>Fuente <input id="noteOutlet" required placeholder="El Diario, W Radio, sitio…"></label>
+            <div class="split">
+              <label>Programa <input id="noteProgram" placeholder="Opcional"></label>
+              <label>Hora <input id="noteTime" placeholder="07:30"></label>
+            </div>
+            <label>Título <input id="noteTitle" required></label>
+            <label>Texto <textarea id="noteBody" rows="6" placeholder="Resumen o transcripción"></textarea></label>
+            <label>Autor <input id="noteAuthor"></label>
+            <label>Enlace <input id="noteUrl" placeholder="https://"></label>
+            <div class="row-actions">
+              <button class="primary" type="submit" id="saveNote">Agregar nota</button>
+              <button type="button" id="cancelEdit" hidden>Cancelar edición</button>
+            </div>
+          </form>
+
+          <div class="panel">
+            <div class="panel-head">
+              <h2>Notas del día</h2>
+              <button type="button" id="reloadNotes">Actualizar</button>
+            </div>
+            <div id="noteList"></div>
+            <h3>Importar JSON</h3>
+            <p class="help">Cada nota puede traer fecha, medio, fuente, titulo y texto.</p>
+            <textarea id="importJson" rows="5" placeholder='[{"fecha":"2026-09-29","medio":"prensa","fuente":"El Diario","titulo":"Titular","texto":"Resumen"}]'></textarea>
+            <div class="row-actions">
+              <button type="button" id="importNotes">Importar</button>
+              <button type="button" id="loadExample">Cargar un día de ejemplo</button>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      <section id="view-sends" hidden></section>
+      <section id="view-config" hidden></section>
+    </main>
+
+    <footer>
+      La hora de envío es la de esta computadora. El correo sale solo mientras esta mesa sigue abierta. Quien arma la síntesis no entra a Gmail ni arma un Word, PDF o HTML.
+    </footer>
+
+    <div id="toast" hidden></div>
+    <div id="modal" hidden>
+      <form id="modalForm">
+        <h2 id="modalTitle"></h2>
+        <p id="modalBody"></p>
+        <div class="row-actions">
+          <button type="button" id="modalCancel">Cancelar</button>
+          <button class="primary" type="submit" id="modalOk">Confirmar</button>
+        </div>
+      </form>
+    </div>
+    <script src="/static/app.js"></script>
+  </body>
+</html>

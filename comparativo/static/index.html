@@ -1,0 +1,102 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Comparativo de transcripciones</title>
+    <link rel="stylesheet" href="/static/styles.css?v=3">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Extractor de texto PDF</p>
+          <h1>Comparativo de transcripciones</h1>
+        </div>
+        <p class="status" id="status" aria-live="polite">Listo</p>
+      </header>
+
+      <p class="lede">
+        Sube un Excel con la liga de cada PDF y la transcripción ya revisada.
+        Cada fila se extrae con el motor del sistema y después se compara.
+        Un salto de línea cuenta como un espacio: no baja el porcentaje si una
+        versión está partida en renglones y la otra no. Al terminar puedes
+        descargar el Excel de entrenamiento, con el texto extraído y la
+        transcripción revisada de cada fila.
+      </p>
+
+      <form id="uploadForm" class="panel">
+        <label class="dropzone" id="dropzone">
+          <input id="excel" type="file" accept=".xlsx,.xlsm,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet">
+          <span class="drop-title">Selecciona o arrastra el Excel</span>
+          <span class="drop-subtitle">Columnas esperadas: liga del PDF y transcripción revisada. También acepta una ruta local.</span>
+          <span id="fileName" class="file-name"></span>
+        </label>
+
+        <div id="mapping" class="mapping" hidden>
+          <div class="controls">
+            <label>
+              <span>Hoja</span>
+              <select id="sheet"></select>
+            </label>
+            <label>
+              <span>Columna de la liga</span>
+              <select id="linkColumn"></select>
+            </label>
+            <label>
+              <span>Columna de la transcripción revisada</span>
+              <select id="textColumn"></select>
+            </label>
+            <label>
+              <span>Género / motor</span>
+              <select id="genre"></select>
+            </label>
+            <label>
+              <span>Header omitido (%)</span>
+              <input id="headerPercent" type="number" min="0" max="40" step="1" value="8">
+            </label>
+            <label>
+              <span>Pie omitido (%)</span>
+              <input id="footerPercent" type="number" min="0" max="40" step="1" value="5">
+            </label>
+          </div>
+          <p id="sheetMeta" class="help"></p>
+          <div class="table-wrap sample-wrap">
+            <table id="sampleTable"></table>
+          </div>
+          <div class="actions">
+            <button class="primary" type="submit" id="startButton">Procesar y comparar</button>
+          </div>
+        </div>
+        <p id="formError" class="error" hidden></p>
+      </form>
+
+      <section id="progressPanel" class="panel progress-panel" hidden>
+        <p id="progressMessage">Preparando</p>
+        <progress id="progressBar" max="1" value="0"></progress>
+        <a id="download" hidden>Descargar Excel de entrenamiento</a>
+      </section>
+
+      <section id="summary" class="summary" hidden></section>
+
+      <section id="results" class="results" hidden>
+        <div class="table-wrap">
+          <table>
+            <thead>
+              <tr>
+                <th>Fila</th>
+                <th>Igualdad</th>
+                <th>Palabras</th>
+                <th>Páginas</th>
+                <th>Estado</th>
+              </tr>
+            </thead>
+            <tbody id="resultBody"></tbody>
+          </table>
+        </div>
+        <article id="detail" class="detail"></article>
+      </section>
+    </main>
+    <script src="/static/app.js?v=3"></script>
+  </body>
+</html>

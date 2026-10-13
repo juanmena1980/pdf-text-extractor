@@ -1,0 +1,3 @@
+# Dependencias de la mesa de síntesis. El extractor de PDF no las necesita.
+google-auth>=2.35
+google-auth-oauthlib>=1.2
