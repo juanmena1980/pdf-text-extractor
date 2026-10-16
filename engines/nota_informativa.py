@@ -10,6 +10,10 @@ from engines.base import (
     split_glued_spanish_words,
     split_glued_uppercase_words,
 )
+from engines.nota_banda_80_90 import apply_banda_80_90
+from engines.nota_banda_90_93 import apply_banda_90_93
+from engines.nota_banda_93_96 import apply_banda_93_96
+from engines.nota_banda_93_95 import apply_banda_93_95
 from engines.prensa_razon import repair_la_prensa_razon_set
 from engines.registry import register_engine
 
@@ -2256,6 +2260,15 @@ def repair_cronica_bylines_and_cuts(text: str) -> str:
     return text
 
 
+def repair_glued_section_labels(text: str) -> str:
+    """Separaciones y avisos que se repiten en notas bajo 90 sin bajar al resto."""
+    text = re.sub(r"\bENLAS\b", "EN LAS", text)
+    text = re.sub(r"\bMUNDO/", "MUNDO /", text)
+    text = re.sub(r"(?i)[ \t]*ESCANEA PARA LEER LA NOTA[ \t]*", " ", text)
+    text = re.sub(r"[ \t]{2,}", " ", text)
+    return text
+
+
 def strip_infographic_residue(text: str) -> str:
     """Quita residuos tipicos de tablas/infografias mal leidas."""
     text = re.sub(
@@ -2317,6 +2330,11 @@ class NotaInformativaCorrectionEngine(GenericCorrectionEngine):
         text = repair_paren_spacing(text)
         text = repair_common_spacing(text)
         text = split_glued_uppercase_words(text)
+        text = repair_glued_section_labels(text)
+        text = apply_banda_80_90(text)
+        text = apply_banda_90_93(text)
+        text = apply_banda_93_96(text)
+        text = apply_banda_93_95(text)
         return text.strip()
 
     def correct_document(self, text: str) -> str:
@@ -2461,6 +2479,11 @@ class NotaInformativaCorrectionEngine(GenericCorrectionEngine):
         text = strip_short_note_agency_mark(text)
         text = strip_infographic_residue(text)
         text = strip_noise_lines(text)
+        text = repair_glued_section_labels(text)
+        text = apply_banda_80_90(text)
+        text = apply_banda_90_93(text)
+        text = apply_banda_93_96(text)
+        text = apply_banda_93_95(text)
         return text.strip()
 
 
